@@ -7,6 +7,7 @@ export interface ProfileRecord {
   email: string
   role: UserRole
   active: boolean
+  avatar: string
   created: string
   updated: string
 }

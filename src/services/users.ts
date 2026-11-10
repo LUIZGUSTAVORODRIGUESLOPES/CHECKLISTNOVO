@@ -1,5 +1,5 @@
 import pb from '@/lib/pocketbase/client'
-import type { ProfileRecord } from '@/types/auth'
+import type { ProfileRecord, UserRole } from '@/types/auth'
 import type { DepartmentRecord } from '@/types/department'
 
 export type { ProfileRecord }
@@ -7,17 +7,33 @@ export type { ProfileRecord }
 /** Registro de profile com o departamento expandido (opcional). */
 export type ProfileWithDepartment = Omit<ProfileRecord, 'department_id'> & {
   department_id?: string
+  /** Nome do arquivo do avatar (campo file da coleção profiles). */
+  avatar?: string
+  /** URL pública da miniatura do avatar (preenchida pela rota server-side). */
+  avatar_url?: string
+  /** Coleções operacionais que possuem ao menos 1 registro vinculado. */
+  linked_collections?: string[]
+  /** true quando o perfil NÃO pode ser excluído fisicamente. */
+  has_operational_links?: boolean
   expand?: { department_id?: DepartmentRecord }
 }
 
 export type UserPayload = {
   full_name: string
   email: string
-  role: ProfileRecord['role']
+  role: UserRole
   active: boolean
   department_id?: string
   password?: string
   passwordConfirm?: string
+}
+
+const BASE_URL = pb.baseUrl.replace(/\/$/, '')
+
+/** URL da miniatura do avatar (thumb 100x100) ou vazio quando não há foto. */
+export function avatarUrl(record: Pick<ProfileWithDepartment, 'avatar' | 'id'>): string {
+  if (!record.avatar) return ''
+  return `${BASE_URL}/api/files/profiles/${record.id}/${record.avatar}?thumb=100x100`
 }
 
 /**
@@ -47,12 +63,26 @@ export async function listProfilesWithDepartment(): Promise<ProfileWithDepartmen
 }
 
 /**
- * Cria usuário (users + profiles) via rota server-side /api/globex/users,
+ * Envia a foto de perfil (multipart/form-data, campo "avatar") pela rota
+ * server-side POST /backend/v1/globex/users/{id}/avatar. O hook valida
+ * PNG/JPG/WEBP e grava o arquivo no campo file `avatar` do profile.
+ */
+export async function uploadUserAvatar(profileId: string, file: File): Promise<void> {
+  const form = new FormData()
+  form.append('avatar', file)
+  await pb.send(`/backend/v1/globex/users/${profileId}/avatar`, {
+    method: 'POST',
+    body: form,
+  })
+}
+
+/**
+ * Cria usuário (users + profiles) via rota server-side /backend/v1/globex/users,
  * que valida tudo e grava de forma atômica. Nenhum caminho usa authWithPassword
  * nem limpa o authStore — a sessão do admin logado permanece intacta.
  */
-export async function createUserWithProfile(payload: UserPayload): Promise<void> {
-  await pb.send('/backend/v1/globex/users', {
+export async function createUserWithProfile(payload: UserPayload): Promise<string> {
+  const res = await pb.send<{ profile_id: string }>('/backend/v1/globex/users', {
     method: 'POST',
     body: {
       full_name: payload.full_name,
@@ -64,11 +94,12 @@ export async function createUserWithProfile(payload: UserPayload): Promise<void>
       passwordConfirm: payload.passwordConfirm ?? payload.password,
     },
   })
+  return res.profile_id
 }
 
 /**
  * Atualiza usuário (users + profiles) via rota server-side
- * PATCH /api/globex/users/{id}. Senha opcional: quando vazia, a atual é
+ * PATCH /backend/v1/globex/users/{id}. Senha opcional: quando vazia, a atual é
  * mantida. A sessão do admin logado (authStore) não é tocada por esta rota.
  */
 export async function updateUserWithProfile(
@@ -86,5 +117,27 @@ export async function updateUserWithProfile(
       password: payload.password || '',
       passwordConfirm: payload.passwordConfirm || payload.password || '',
     },
+  })
+}
+
+/**
+ * Exclui fisicamente o usuário (profile + conta em users) via rota server-side
+ * DELETE /backend/v1/globex/users/{id}. O hook recusa (erro) quando o perfil
+ * possui histórico operacional vinculado — cenário B.
+ */
+export async function deleteUser(profileId: string): Promise<void> {
+  await pb.send(`/backend/v1/globex/users/${profileId}`, {
+    method: 'DELETE',
+  })
+}
+
+/**
+ * Inativa o usuário (active = false) sem excluir nada, via rota server-side
+ * PATCH /backend/v1/globex/users/{id}/inactive.
+ */
+export async function deactivateUser(profileId: string): Promise<void> {
+  await pb.send(`/backend/v1/globex/users/${profileId}/inactive`, {
+    method: 'PATCH',
+    body: {},
   })
 }

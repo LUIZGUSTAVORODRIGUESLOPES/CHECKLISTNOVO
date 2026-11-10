@@ -1,24 +1,44 @@
 /// <reference lib="es2023" />
 // Hooks PocketBase (pb_hooks) do módulo Usuários.
+//
+// IMPORTANTE (JSVM do PocketBase): callbacks de rota rodam em um pool de VMs
+// separado — funções/constantes de top-level NÃO são visíveis dentro deles.
+// Por isso, toda a lógica vive inline dentro de cada callback abaixo.
+//
+// Rotas (prefixo /backend/v1/):
+//   POST   /backend/v1/globex/users             — cria usuário (users + profiles)
+//   GET    /backend/v1/globex/users             — lista perfis (com avatar + vínculos)
+//   PATCH  /backend/v1/globex/users/{id}        — atualiza usuário (senha opcional)
+//   DELETE /backend/v1/globex/users/{id}        — exclui (0 vínculos) ou recusa (1+)
+//   PATCH  /backend/v1/globex/users/{id}/inactive — inativa (active = false)
+//   POST   /backend/v1/globex/users/{id}/avatar — upload de foto de perfil (multipart)
 
-/**
- * POST /api/globex/users
- *
- * Cria o registro em `users` (senha processada pelo PocketBase) e o perfil
- * correspondente em `profiles` de forma atômica, server-side.
- * Exige usuário autenticado — a página é restrita a admin (RoleGuard).
- */
+// =====================================================================
+// POST /backend/v1/globex/users — criar usuário
+// =====================================================================
 routerAdd(
   'POST',
   '/backend/v1/globex/users',
   (e) => {
+    const requireAdminCaller = () => {
+      if (!e.auth || !e.auth.id) {
+        throw new UnauthorizedError('Sessão não autenticada.')
+      }
+      let callerProfile
+      try {
+        callerProfile = e.app.findFirstRecordByFilter('profiles', `user = "${e.auth.id}"`)
+      } catch (_) {
+        throw new ForbiddenError('Perfil não encontrado para o usuário autenticado.')
+      }
+      if (callerProfile.getString('role') !== 'admin' || !callerProfile.getBool('active')) {
+        throw new ForbiddenError('Somente administradores podem gerenciar usuários.')
+      }
+      return callerProfile
+    }
+    requireAdminCaller()
+
     const info = e.requestInfo()
     const body = info.body || {}
-
-    // Somente usuários autenticados podem criar usuários
-    if (!e.auth || !e.auth.id) {
-      throw new UnauthorizedError('Sessão não autenticada.')
-    }
 
     const fullName = String(body.full_name || '').trim()
     const email = String(body.email || '')
@@ -58,16 +78,15 @@ routerAdd(
     } catch (err) {
       if (err instanceof BadRequestError) throw err
     }
-
-    let user
     try {
-      user = e.app.findAuthRecordByEmail('_pb_users_auth_', email)
+      e.app.findAuthRecordByEmail('_pb_users_auth_', email)
       throw new BadRequestError('Já existe um usuário com este e-mail.')
     } catch (err) {
       if (err instanceof BadRequestError) throw err
     }
 
     const users = e.app.findCollectionByNameOrId('_pb_users_auth_')
+    let createdProfileId = ''
 
     e.app.runInTransaction((txApp) => {
       const userRecord = new Record(users)
@@ -88,80 +107,114 @@ routerAdd(
         profileRecord.set('department_id', departmentId)
       }
       txApp.save(profileRecord)
+      createdProfileId = profileRecord.id
     })
 
-    return e.json(200, { ok: true })
+    return e.json(200, { ok: true, profile_id: createdProfileId })
   },
   $apis.requireAuth(),
 )
 
-/**
- * GET /backend/v1/globex/users
- *
- * Lista todos os perfis (profiles) ordenados por nome completo.
- *
- * Por que rota server-side: a regra de lista da coleção `profiles` usa um
- * self-join (`@collection.profiles.user = @request.auth.id &&
- * @collection.profiles.role = 'admin'`) que NÃO funciona como subconsulta
- * EXISTS no PocketBase — na prática cada admin só enxerga o próprio perfil,
- * escondendo usuários recém-criados da lista. Aqui a verificação de admin é
- * feita no hook (perfil do chamador com role 'admin' e ativo) e a listagem
- * roda com acesso pleno do app, retornando todos os perfis.
- */
+// =====================================================================
+// GET /backend/v1/globex/users — listar perfis
+// =====================================================================
 routerAdd(
   'GET',
   '/backend/v1/globex/users',
   (e) => {
-    if (!e.auth || !e.auth.id) {
-      throw new UnauthorizedError('Sessão não autenticada.')
+    const requireAdminCaller = () => {
+      if (!e.auth || !e.auth.id) {
+        throw new UnauthorizedError('Sessão não autenticada.')
+      }
+      let callerProfile
+      try {
+        callerProfile = e.app.findFirstRecordByFilter('profiles', `user = "${e.auth.id}"`)
+      } catch (_) {
+        throw new ForbiddenError('Perfil não encontrado para o usuário autenticado.')
+      }
+      if (callerProfile.getString('role') !== 'admin' || !callerProfile.getBool('active')) {
+        throw new ForbiddenError('Somente administradores podem gerenciar usuários.')
+      }
+      return callerProfile
     }
+    requireAdminCaller()
 
-    let callerProfile
-    try {
-      callerProfile = e.app.findFirstRecordByFilter('profiles', `user = "${e.auth.id}"`)
-    } catch (_) {
-      throw new ForbiddenError('Perfil não encontrado para o usuário autenticado.')
-    }
-    if (callerProfile.getString('role') !== 'admin' || !callerProfile.getBool('active')) {
-      throw new ForbiddenError('Somente administradores podem listar usuários.')
-    }
+    const links = [
+      { collection: 'templates', field: 'created_by' },
+      { collection: 'schedules', field: 'assigned_to' },
+      { collection: 'responses', field: 'operator_id' },
+      { collection: 'action_plans', field: 'responsible_id' },
+    ]
 
     const profileRecords = e.app.findRecordsByFilter('profiles', '', 'full_name', 0, 0)
-    const items = profileRecords.map((p) => ({
-      id: p.id,
-      user: p.getString('user'),
-      full_name: p.getString('full_name'),
-      email: p.getString('email'),
-      role: p.getString('role'),
-      active: p.getBool('active'),
-      department_id: p.getString('department_id'),
-      created: p.getString('created'),
-      updated: p.getString('updated'),
-    }))
+    const items = profileRecords.map((p) => {
+      const linkedCollections = links
+        .filter((link) => {
+          try {
+            const found = e.app.findRecordsByFilter(
+              link.collection,
+              `${link.field} = "${p.id}"`,
+              '',
+              1,
+              0,
+            )
+            return found && found.length > 0
+          } catch (_) {
+            return false
+          }
+        })
+        .map((link) => link.collection)
+
+      const avatar = p.getString('avatar')
+
+      return {
+        id: p.id,
+        user: p.getString('user'),
+        full_name: p.getString('full_name'),
+        email: p.getString('email'),
+        role: p.getString('role'),
+        active: p.getBool('active'),
+        department_id: p.getString('department_id'),
+        avatar: avatar || '',
+        avatar_url: avatar ? p.fileUrl(avatar) : '',
+        has_operational_links: linkedCollections.length > 0,
+        linked_collections: linkedCollections,
+        created: p.getString('created'),
+        updated: p.getString('updated'),
+      }
+    })
 
     return e.json(200, { items })
   },
   $apis.requireAuth(),
 )
 
-/**
- * PATCH /backend/v1/globex/users/{id}
- *
- * Atualiza o registro auth em `users` e o perfil em `profiles`.
- * A troca de senha é OPCIONAL (password vazio mantém a atual). A sessão do
- * admin que chama esta rota não é tocada — nada aqui autentica ou limpa tokens.
- */
+// =====================================================================
+// PATCH /backend/v1/globex/users/{id} — atualizar usuário
+// =====================================================================
 routerAdd(
   'PATCH',
   '/backend/v1/globex/users/{id}',
   (e) => {
+    const requireAdminCaller = () => {
+      if (!e.auth || !e.auth.id) {
+        throw new UnauthorizedError('Sessão não autenticada.')
+      }
+      let callerProfile
+      try {
+        callerProfile = e.app.findFirstRecordByFilter('profiles', `user = "${e.auth.id}"`)
+      } catch (_) {
+        throw new ForbiddenError('Perfil não encontrado para o usuário autenticado.')
+      }
+      if (callerProfile.getString('role') !== 'admin' || !callerProfile.getBool('active')) {
+        throw new ForbiddenError('Somente administradores podem gerenciar usuários.')
+      }
+      return callerProfile
+    }
+    requireAdminCaller()
+
     const info = e.requestInfo()
     const body = info.body || {}
-
-    if (!e.auth || !e.auth.id) {
-      throw new UnauthorizedError('Sessão não autenticada.')
-    }
-
     const profileId = e.request.pathValue('id')
 
     let profile
@@ -171,16 +224,13 @@ routerAdd(
       throw new NotFoundError('Usuário não encontrado.')
     }
 
-    const userId = profile.getString('user')
     let user
     try {
-      user = e.app.findRecordById('_pb_users_auth_', userId)
+      user = e.app.findRecordById('_pb_users_auth_', profile.getString('user'))
     } catch (_) {
       throw new NotFoundError('Registro de acesso não encontrado para este perfil.')
     }
 
-    const data = {}
-    let passwordProvided = false
     const fullName = body.full_name !== undefined ? String(body.full_name).trim() : null
     const email = body.email !== undefined ? String(body.email).trim().toLowerCase() : null
     const role = body.role !== undefined ? String(body.role).trim() : null
@@ -193,6 +243,7 @@ routerAdd(
     const password = String(body.password || '')
     const passwordConfirm = String(body.passwordConfirm || '')
 
+    let passwordProvided = false
     if (password || passwordConfirm) {
       if (password.length < 6) {
         throw new BadRequestError('A senha deve ter no mínimo 6 caracteres.')
@@ -261,16 +312,213 @@ routerAdd(
       if (role !== null) profileEdit.set('role', role)
       if (active !== null) profileEdit.set('active', active)
       if (departmentId !== null) {
-        if (departmentId) {
-          profileEdit.set('department_id', departmentId)
-        } else {
-          profileEdit.set('department_id', '')
-        }
+        profileEdit.set('department_id', departmentId) // '' limpa o vínculo
       }
       txApp.save(profileEdit)
     })
 
     return e.json(200, { ok: true })
+  },
+  $apis.requireAuth(),
+)
+
+// =====================================================================
+// DELETE /backend/v1/globex/users/{id} — exclusão condicional
+// =====================================================================
+// Cenário A (0 vínculos operacionais): exclui profile + conta users, em
+//   transaction (admin pode excluir qualquer conta sem oldPassword).
+// Cenário B (1+ vínculos): recusa com o motivo — o frontend oferece
+//   "Inativar Usuário" em vez de excluir.
+routerAdd(
+  'DELETE',
+  '/backend/v1/globex/users/{id}',
+  (e) => {
+    const requireAdminCaller = () => {
+      if (!e.auth || !e.auth.id) {
+        throw new UnauthorizedError('Sessão não autenticada.')
+      }
+      let callerProfile
+      try {
+        callerProfile = e.app.findFirstRecordByFilter('profiles', `user = "${e.auth.id}"`)
+      } catch (_) {
+        throw new ForbiddenError('Perfil não encontrado para o usuário autenticado.')
+      }
+      if (callerProfile.getString('role') !== 'admin' || !callerProfile.getBool('active')) {
+        throw new ForbiddenError('Somente administradores podem gerenciar usuários.')
+      }
+      return callerProfile
+    }
+    requireAdminCaller()
+
+    const profileId = e.request.pathValue('id')
+
+    let profile
+    try {
+      profile = e.app.findRecordById('profiles', profileId)
+    } catch (_) {
+      throw new NotFoundError('Usuário não encontrado.')
+    }
+
+    // Proteção: o admin não pode excluir a própria conta em uso.
+    if (profile.getString('user') === e.auth.id) {
+      throw new BadRequestError('Você não pode excluir a sua própria conta.')
+    }
+
+    const links = [
+      { collection: 'templates', field: 'created_by' },
+      { collection: 'schedules', field: 'assigned_to' },
+      { collection: 'responses', field: 'operator_id' },
+      { collection: 'action_plans', field: 'responsible_id' },
+    ]
+
+    let linked = 0
+    for (const link of links) {
+      try {
+        const found = e.app.findRecordsByFilter(
+          link.collection,
+          `${link.field} = "${profileId}"`,
+          '',
+          1,
+          0,
+        )
+        if (found && found.length > 0) linked++
+      } catch (err) {
+        console.log(`users_management: falha ao verificar ${link.collection}: ${err}`)
+      }
+    }
+
+    if (linked > 0) {
+      throw new BadRequestError(
+        'Este usuário possui histórico operacional vinculado e não pode ser excluído por segurança de auditoria. Utilize a opção de Inativar.',
+      )
+    }
+
+    const userId = profile.getString('user')
+
+    e.app.runInTransaction((txApp) => {
+      // Remove o profile primeiro; a conta auth depois.
+      try {
+        txApp.delete(txApp.findRecordById('profiles', profileId))
+      } catch (_) {
+        throw new NotFoundError('Usuário não encontrado.')
+      }
+      try {
+        txApp.delete(txApp.findRecordById('_pb_users_auth_', userId))
+      } catch (_) {
+        // Perfil sem conta correspondente: nada a remover.
+      }
+    })
+
+    return e.json(200, { ok: true })
+  },
+  $apis.requireAuth(),
+)
+
+// =====================================================================
+// PATCH /backend/v1/globex/users/{id}/inactive — inativação
+// =====================================================================
+// Define active = false (sem excluir nada). Rota separada para o botão
+// "Inativar Usuário" funcionar com um clique.
+routerAdd(
+  'PATCH',
+  '/backend/v1/globex/users/{id}/inactive',
+  (e) => {
+    const requireAdminCaller = () => {
+      if (!e.auth || !e.auth.id) {
+        throw new UnauthorizedError('Sessão não autenticada.')
+      }
+      let callerProfile
+      try {
+        callerProfile = e.app.findFirstRecordByFilter('profiles', `user = "${e.auth.id}"`)
+      } catch (_) {
+        throw new ForbiddenError('Perfil não encontrado para o usuário autenticado.')
+      }
+      if (callerProfile.getString('role') !== 'admin' || !callerProfile.getBool('active')) {
+        throw new ForbiddenError('Somente administradores podem gerenciar usuários.')
+      }
+      return callerProfile
+    }
+    requireAdminCaller()
+
+    const profileId = e.request.pathValue('id')
+
+    let profile
+    try {
+      profile = e.app.findRecordById('profiles', profileId)
+    } catch (_) {
+      throw new NotFoundError('Usuário não encontrado.')
+    }
+
+    if (profile.getString('user') === e.auth.id) {
+      throw new BadRequestError('Você não pode inativar a sua própria conta.')
+    }
+
+    profile.set('active', false)
+    e.app.save(profile)
+
+    return e.json(200, { ok: true })
+  },
+  $apis.requireAuth(),
+)
+
+// =====================================================================
+// POST /backend/v1/globex/users/{id}/avatar — upload de foto de perfil
+// =====================================================================
+// multipart/form-data com campo "avatar" (PNG/JPG/WEBP, até 5 MB).
+routerAdd(
+  'POST',
+  '/backend/v1/globex/users/{id}/avatar',
+  (e) => {
+    const requireAdminCaller = () => {
+      if (!e.auth || !e.auth.id) {
+        throw new UnauthorizedError('Sessão não autenticada.')
+      }
+      let callerProfile
+      try {
+        callerProfile = e.app.findFirstRecordByFilter('profiles', `user = "${e.auth.id}"`)
+      } catch (_) {
+        throw new ForbiddenError('Perfil não encontrado para o usuário autenticado.')
+      }
+      if (callerProfile.getString('role') !== 'admin' || !callerProfile.getBool('active')) {
+        throw new ForbiddenError('Somente administradores podem gerenciar usuários.')
+      }
+      return callerProfile
+    }
+    requireAdminCaller()
+
+    const profileId = e.request.pathValue('id')
+
+    let profile
+    try {
+      profile = e.app.findRecordById('profiles', profileId)
+    } catch (_) {
+      throw new NotFoundError('Usuário não encontrado.')
+    }
+
+    let files
+    try {
+      files = e.findUploadedFiles('avatar')
+    } catch (_) {
+      files = []
+    }
+    if (!files || files.length === 0) {
+      throw new BadRequestError('Nenhuma imagem enviada (campo "avatar").')
+    }
+
+    // Validação pelo Content-Type detectado pelo parser multipart.
+    const contentType = String(files[0].type || '').toLowerCase()
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(contentType)) {
+      throw new BadRequestError('Formato inválido. Envie uma imagem PNG, JPG ou WEBP.')
+    }
+
+    profile.set('avatar', files[0])
+    e.app.save(profile)
+
+    return e.json(200, {
+      ok: true,
+      avatar: profile.getString('avatar'),
+      avatar_url: profile.fileUrl(profile.getString('avatar')),
+    })
   },
   $apis.requireAuth(),
 )

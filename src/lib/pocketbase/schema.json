@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-10T18:21:04.741Z",
+  "generatedAt": "2026-11-10T18:55:09.637Z",
   "collections": [
     {
       "name": "users",
@@ -107,6 +107,12 @@
           "required": false,
           "system": false,
           "collectionRef": "departments"
+        },
+        {
+          "name": "avatar",
+          "type": "file",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -159,6 +165,258 @@
         }
       ],
       "indexes": ["CREATE UNIQUE INDEX idx_departments_name ON departments (name)"]
+    },
+    {
+      "name": "templates",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "department_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "departments"
+        },
+        {
+          "name": "blocks",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "active",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "profiles"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_templates_department ON templates (department_id)",
+        "CREATE INDEX idx_templates_created_by ON templates (created_by)"
+      ]
+    },
+    {
+      "name": "schedules",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [
+        {
+          "name": "title",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "template_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "templates"
+        },
+        {
+          "name": "assigned_to",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "profiles"
+        },
+        {
+          "name": "scheduled_date",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_schedules_template ON schedules (template_id)",
+        "CREATE INDEX idx_schedules_assigned_to ON schedules (assigned_to)"
+      ]
+    },
+    {
+      "name": "responses",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [
+        {
+          "name": "template_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "templates"
+        },
+        {
+          "name": "operator_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "profiles"
+        },
+        {
+          "name": "answers",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "template_snapshot",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_responses_template ON responses (template_id)",
+        "CREATE INDEX idx_responses_operator ON responses (operator_id)"
+      ]
+    },
+    {
+      "name": "action_plans",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [
+        {
+          "name": "response_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "responses"
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "responsible_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "profiles"
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_action_plans_response ON action_plans (response_id)",
+        "CREATE INDEX idx_action_plans_responsible ON action_plans (responsible_id)"
+      ]
     }
   ]
 }

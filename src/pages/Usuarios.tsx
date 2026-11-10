@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import pb from '@/lib/pocketbase/client'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -32,6 +32,16 @@ import {
 } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   Building2,
   Plus,
   Pencil,
@@ -39,6 +49,9 @@ import {
   Users as UsersIcon,
   ShieldCheck,
   UserCheck,
+  Trash2,
+  ImagePlus,
+  X,
 } from 'lucide-react'
 import type { DepartmentRecord } from '@/types/department'
 import { listDepartments, createDepartment, updateDepartment } from '@/services/departments'
@@ -46,11 +59,19 @@ import {
   listProfilesWithDepartment,
   createUserWithProfile,
   updateUserWithProfile,
+  uploadUserAvatar,
+  deleteUser,
+  deactivateUser,
+  avatarUrl,
   type ProfileWithDepartment,
 } from '@/services/users'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
 
 const MIN_PASSWORD = 6
+
+/** Aviso EXATO exigido para usuários com histórico operacional vinculado. */
+const LINKED_HISTORY_WARNING =
+  'Este usuário possui histórico operacional vinculado e não pode ser excluído por segurança de auditoria. Utilize a opção de Inativar.'
 
 type FieldErrors = Record<string, string>
 
@@ -92,6 +113,16 @@ export default function Usuarios() {
   })
   const [userErrors, setUserErrors] = useState<FieldErrors>({})
 
+  // ---------- Avatar (form) ----------
+  const [avatarFile, setAvatarFile] = useState<File | null>(null)
+  const [avatarPreview, setAvatarPreview] = useState('')
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+
+  // ---------- Exclusão / Inativação ----------
+  const [deleteTarget, setDeleteTarget] = useState<ProfileWithDepartment | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [isDeactivatingId, setIsDeactivatingId] = useState<string | null>(null)
+
   const activeDepartments = useMemo(() => departments.filter((d) => d.active), [departments])
   const departmentNameById = useMemo(() => {
     const map = new Map<string, string>()
@@ -119,6 +150,43 @@ export default function Usuarios() {
   useEffect(() => {
     loadAll()
   }, [loadAll])
+
+  // ====================== Avatar ======================
+
+  const resetAvatarState = () => {
+    setAvatarFile(null)
+    setAvatarPreview('')
+    if (avatarInputRef.current) avatarInputRef.current.value = ''
+  }
+
+  const handleAvatarChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] || null
+    if (!file) return
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      setUserErrors((prev) => ({ ...prev, avatar: 'Formato inválido. Use PNG, JPG ou WEBP.' }))
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setUserErrors((prev) => ({ ...prev, avatar: 'A imagem deve ter no máximo 5 MB.' }))
+      return
+    }
+    setUserErrors((prev) => {
+      const next = { ...prev }
+      delete next.avatar
+      return next
+    })
+    setAvatarFile(file)
+    setAvatarPreview(URL.createObjectURL(file))
+  }
+
+  const removeAvatarSelection = () => {
+    resetAvatarState()
+    setUserErrors((prev) => {
+      const next = { ...prev }
+      delete next.avatar
+      return next
+    })
+  }
 
   // ====================== Departamentos ======================
 
@@ -210,6 +278,7 @@ export default function Usuarios() {
       passwordConfirm: '',
     })
     setUserErrors({})
+    resetAvatarState()
     setUserDialogOpen(true)
   }
 
@@ -225,6 +294,10 @@ export default function Usuarios() {
       passwordConfirm: '',
     })
     setUserErrors({})
+    // Pré-visualização parte da foto já salva (ou vazia se não há).
+    setAvatarFile(null)
+    setAvatarPreview(avatarUrl(profile))
+    if (avatarInputRef.current) avatarInputRef.current.value = ''
     setUserDialogOpen(true)
   }
 
@@ -282,8 +355,11 @@ export default function Usuarios() {
           passwordConfirm: userForm.passwordConfirm || undefined,
         })
         toast({ title: 'Usuário atualizado com sucesso.' })
+        if (avatarFile) {
+          await uploadUserAvatar(editingProfile.id, avatarFile)
+        }
       } else {
-        await createUserWithProfile({
+        const newProfileId = await createUserWithProfile({
           full_name: userForm.full_name.trim(),
           email: userForm.email.trim(),
           role: userForm.role,
@@ -292,6 +368,9 @@ export default function Usuarios() {
           password: userForm.password,
           passwordConfirm: userForm.passwordConfirm,
         })
+        if (avatarFile && newProfileId) {
+          await uploadUserAvatar(newProfileId, avatarFile)
+        }
         toast({ title: 'Usuário criado com sucesso.' })
       }
       setUserDialogOpen(false)
@@ -304,6 +383,44 @@ export default function Usuarios() {
       })
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  // ====================== Exclusão / Inativação ======================
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return
+    setIsDeleting(true)
+    try {
+      await deleteUser(deleteTarget.id)
+      toast({ title: 'Usuário excluído definitivamente.' })
+      setDeleteTarget(null)
+      await loadAll()
+    } catch (err) {
+      toast({
+        title: 'Não foi possível excluir',
+        description: getErrorMessage(err),
+        variant: 'destructive',
+      })
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  const handleDeactivate = async (profile: ProfileWithDepartment) => {
+    setIsDeactivatingId(profile.id)
+    try {
+      await deactivateUser(profile.id)
+      toast({ title: `"${profile.full_name}" foi inativado.` })
+      await loadAll()
+    } catch (err) {
+      toast({
+        title: 'Erro ao inativar usuário',
+        description: getErrorMessage(err),
+        variant: 'destructive',
+      })
+    } finally {
+      setIsDeactivatingId(null)
     }
   }
 
@@ -359,6 +476,7 @@ export default function Usuarios() {
             <Table>
               <TableHeader>
                 <TableRow className="border-slate-800 hover:bg-transparent">
+                  <TableHead className="text-slate-400 w-16">Foto</TableHead>
                   <TableHead className="text-slate-400">Nome Completo</TableHead>
                   <TableHead className="text-slate-400">E-mail</TableHead>
                   <TableHead className="text-slate-400">Departamento</TableHead>
@@ -370,67 +488,130 @@ export default function Usuarios() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-slate-400 py-10">
+                    <TableCell colSpan={7} className="text-center text-slate-400 py-10">
                       Carregando usuários…
                     </TableCell>
                   </TableRow>
                 ) : profiles.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-slate-400 py-10">
+                    <TableCell colSpan={7} className="text-center text-slate-400 py-10">
                       Nenhum usuário cadastrado.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  profiles.map((profile) => (
-                    <TableRow key={profile.id} className="border-slate-800">
-                      <TableCell className="font-medium text-white">{profile.full_name}</TableCell>
-                      <TableCell className="text-slate-300">{profile.email}</TableCell>
-                      <TableCell className="text-slate-300">
-                        {profile.department_id
-                          ? departmentNameById.get(profile.department_id) || '—'
-                          : '—'}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={
-                            profile.role === 'admin'
-                              ? 'bg-amber-950/50 text-amber-300 border-amber-800'
-                              : 'bg-blue-950/50 text-blue-300 border-blue-800'
-                          }
-                        >
-                          {profile.role === 'admin' ? (
-                            <ShieldCheck className="w-3 h-3 mr-1 inline" />
-                          ) : (
-                            <UserCheck className="w-3 h-3 mr-1 inline" />
-                          )}
-                          {profile.role === 'admin' ? 'ADMIN' : 'OPERATOR'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          className={
-                            profile.active
-                              ? 'bg-green-950/60 text-green-400 border border-green-800'
-                              : 'bg-slate-800 text-slate-400 border border-slate-700'
-                          }
-                        >
-                          {profile.active ? 'Ativo' : 'Inativo'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800"
-                          onClick={() => openEditUser(profile)}
-                        >
-                          <Pencil className="w-4 h-4 mr-1" />
-                          Editar
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  profiles.map((profile) => {
+                    const hasLinks = !!profile.has_operational_links
+                    const initials = profile.full_name
+                      .split(/\s+/)
+                      .filter(Boolean)
+                      .slice(0, 2)
+                      .map((part) => part[0]?.toUpperCase() || '')
+                      .join('')
+
+                    return (
+                      <TableRow key={profile.id} className="border-slate-800">
+                        <TableCell>
+                          <Avatar className="h-10 w-10 border border-slate-700">
+                            {profile.avatar && (
+                              <AvatarImage
+                                src={avatarUrl(profile)}
+                                alt={`Foto de ${profile.full_name}`}
+                              />
+                            )}
+                            <AvatarFallback className="bg-slate-800 text-slate-300 text-xs font-semibold">
+                              {initials || '?'}
+                            </AvatarFallback>
+                          </Avatar>
+                        </TableCell>
+                        <TableCell className="font-medium text-white">
+                          {profile.full_name}
+                        </TableCell>
+                        <TableCell className="text-slate-300">{profile.email}</TableCell>
+                        <TableCell className="text-slate-300">
+                          {profile.department_id
+                            ? departmentNameById.get(profile.department_id) || '—'
+                            : '—'}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={
+                              profile.role === 'admin'
+                                ? 'bg-amber-950/50 text-amber-300 border-amber-800'
+                                : 'bg-blue-950/50 text-blue-300 border-blue-800'
+                            }
+                          >
+                            {profile.role === 'admin' ? (
+                              <ShieldCheck className="w-3 h-3 mr-1 inline" />
+                            ) : (
+                              <UserCheck className="w-3 h-3 mr-1 inline" />
+                            )}
+                            {profile.role === 'admin' ? 'ADMIN' : 'OPERATOR'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            className={
+                              profile.active
+                                ? 'bg-green-950/60 text-green-400 border border-green-800'
+                                : 'bg-slate-800 text-slate-400 border border-slate-700'
+                            }
+                          >
+                            {profile.active ? 'Ativo' : 'Inativo'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex flex-col items-end gap-2">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800"
+                                onClick={() => openEditUser(profile)}
+                              >
+                                <Pencil className="w-4 h-4 mr-1" />
+                                Editar
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="bg-red-950/60 border-red-900 text-red-300 hover:bg-red-900/60 disabled:opacity-40"
+                                disabled={hasLinks}
+                                title={
+                                  hasLinks ? LINKED_HISTORY_WARNING : 'Excluir definitivamente'
+                                }
+                                onClick={() => setDeleteTarget(profile)}
+                              >
+                                <Trash2 className="w-4 h-4 mr-1" />
+                                Excluir
+                              </Button>
+                            </div>
+                            {hasLinks && (
+                              <div className="flex flex-col items-end gap-1.5 max-w-[340px]">
+                                <p className="text-[11px] leading-snug text-amber-300/90 text-right">
+                                  {LINKED_HISTORY_WARNING}
+                                </p>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="bg-amber-950/60 border-amber-800 text-amber-200 hover:bg-amber-900/60"
+                                  disabled={
+                                    profile.active === false || isDeactivatingId === profile.id
+                                  }
+                                  onClick={() => handleDeactivate(profile)}
+                                >
+                                  <UserCheck className="w-4 h-4 mr-1" />
+                                  {isDeactivatingId === profile.id
+                                    ? 'Inativando…'
+                                    : 'Inativar Usuário'}
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
                 )}
               </TableBody>
             </Table>
@@ -601,6 +782,56 @@ export default function Usuarios() {
           </DialogHeader>
 
           <div className="space-y-4">
+            {/* Avatar */}
+            <div className="space-y-1.5">
+              <Label>Foto de Perfil</Label>
+              <div className="flex items-center gap-4">
+                <Avatar className="h-16 w-16 border border-slate-700">
+                  {avatarPreview ? (
+                    <AvatarImage src={avatarPreview} alt="Pré-visualização da foto" />
+                  ) : null}
+                  <AvatarFallback className="bg-slate-800 text-slate-300 font-semibold">
+                    <ImagePlus className="w-5 h-5" />
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex flex-col gap-1.5">
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={handleAvatarChange}
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="bg-slate-950 border-slate-700 text-slate-200 hover:bg-slate-800"
+                      onClick={() => avatarInputRef.current?.click()}
+                    >
+                      <ImagePlus className="w-4 h-4 mr-1" />
+                      {avatarPreview ? 'Trocar foto' : 'Selecionar foto'}
+                    </Button>
+                    {avatarFile && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="bg-slate-950 border-slate-700 text-slate-400 hover:bg-slate-800"
+                        onClick={removeAvatarSelection}
+                      >
+                        <X className="w-4 h-4 mr-1" />
+                        Remover
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500">PNG, JPG ou WEBP — até 5 MB.</p>
+                </div>
+              </div>
+              <FieldError message={userErrors.avatar} />
+            </div>
+
             {/* Switch Usuário Ativo */}
             <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/60 px-4 py-3">
               <Label htmlFor="user-active" className="text-slate-200">
@@ -741,6 +972,42 @@ export default function Usuarios() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ============ AlertDialog: confirmar exclusão definitiva ============ */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent className="bg-slate-900 border-slate-800 text-slate-100">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-white">Excluir usuário?</AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-400">
+              {deleteTarget && (
+                <>
+                  <span className="text-slate-200">{deleteTarget.full_name}</span> será excluído
+                  <span className="font-semibold text-red-300"> definitivamente</span> — o perfil e
+                  a conta de acesso serão removidos do banco e esta ação não pode ser desfeita.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2">
+            <AlertDialogCancel
+              className="bg-slate-950 border-slate-700 text-slate-200 hover:bg-slate-800"
+              disabled={isDeleting}
+            >
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 text-white hover:bg-red-700"
+              disabled={isDeleting}
+              onClick={(event) => {
+                event.preventDefault()
+                handleConfirmDelete()
+              }}
+            >
+              {isDeleting ? 'Excluindo…' : 'Excluir definitivamente'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
