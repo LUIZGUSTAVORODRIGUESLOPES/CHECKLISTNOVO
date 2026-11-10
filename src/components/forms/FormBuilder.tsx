@@ -9,7 +9,9 @@ import { Badge } from '@/components/ui/badge'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
@@ -28,9 +30,12 @@ import {
   Archive,
   ArrowDown,
   ArrowUp,
+  Barcode,
+  ClipboardCheck,
   ChevronDown,
   ChevronUp,
   FileText,
+  Gauge,
   GripVertical,
   LayoutTemplate,
   Lock,
@@ -42,7 +47,16 @@ import { FieldOptionsEditor } from '@/components/forms/FieldOptionsEditor'
 import type { DepartmentRecord } from '@/types/department'
 import type { SubjectRecord } from '@/types/subject'
 import {
+  DATE_FORMATS,
+  EVALUATIVE_SCALES,
+  FIELD_COMPLEMENTS,
   FIELD_TYPE_LABELS,
+  NUMBER_PATTERNS,
+  REGISTRY_MASKS,
+  UNIT_CATEGORIES,
+  isChoiceType,
+  type EvaluativeScale,
+  type FieldComplement,
   type FieldType,
   type TemplateBlock,
   type TemplateField,
@@ -62,23 +76,31 @@ const newBlock = (index: number): TemplateBlock => ({
   fields: [],
 })
 
-const isChoiceType = (type: FieldType) => type === 'select' || type === 'multiselect'
-
-const newField = (type: FieldType, index: number): TemplateField => ({
-  id: newId('fld'),
-  type,
-  label: isChoiceType(type) ? 'Nova Lista Suspensa' : `Novo Campo ${index}`,
-  instructions: '',
-  required: false,
-  options: isChoiceType(type) ? ['Opção 1'] : undefined,
-})
+const newField = (type: FieldType, index: number): TemplateField => {
+  const base: TemplateField = {
+    id: newId('fld'),
+    type,
+    label: isChoiceType(type) ? 'Nova Lista Suspensa' : `Novo Campo ${index}`,
+    instructions: '',
+    required: false,
+    complements: [],
+  }
+  if (isChoiceType(type)) base.options = ['Opção 1']
+  if (type === 'date') base.date_format = 'date_ddmmyyyy'
+  if (type === 'number') base.number_pattern = 'quantity'
+  if (type === 'registry') base.registry_mask = 'email'
+  if (type === 'evaluative') base.evaluative_scale = 'smiley'
+  return base
+}
 
 const TOOLBOX_ITEMS: { type: FieldType; icon: React.ReactNode }[] = [
   { type: 'text', icon: <FileText className="h-4 w-4" /> },
-  { type: 'number', icon: <Settings2 className="h-4 w-4" /> },
+  { type: 'number', icon: <Gauge className="h-4 w-4" /> },
   { type: 'date', icon: <LayoutTemplate className="h-4 w-4" /> },
   { type: 'select', icon: <ChevronDown className="h-4 w-4" /> },
   { type: 'multiselect', icon: <ChevronUp className="h-4 w-4" /> },
+  { type: 'registry', icon: <Barcode className="h-4 w-4" /> },
+  { type: 'evaluative', icon: <ClipboardCheck className="h-4 w-4" /> },
 ]
 
 export interface BuilderSubmitPayload {
@@ -304,9 +326,9 @@ export function FormBuilder({
             <p className="font-semibold">Modo de edição segura</p>
             <p className="text-amber-200/80">
               Este formulário já possui {responsesCount} resposta(s) vinculada(s). É possível criar
-              campos e editar rótulos e instruções, mas o tipo dos campos existentes está bloqueado
-              e excluir campos foi substituído por “Arquivar Campo”, para preservar as respostas
-              antigas.
+              campos, adicionar opções e editar rótulos, instruções e pesos, mas o tipo dos campos
+              existentes está bloqueado, opções antigas só podem ser inativadas e excluir campos foi
+              substituído por “Arquivar Campo”, para preservar as respostas antigas.
             </p>
           </div>
         </div>
@@ -481,7 +503,7 @@ export function FormBuilder({
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-slate-400 hover:text-slate-100"
+                        className="h-7 w-7 text-slate-400 hover:text-slate-200"
                         title="Mover bloco para baixo"
                         disabled={blockIndex === blocks.length - 1}
                         onClick={(e) => {
@@ -669,6 +691,12 @@ export function FormBuilder({
                             if (isChoiceType(type)) {
                               if (!f.options || f.options.length === 0) f.options = ['Opção 1']
                             }
+                            if (type === 'date' && !f.date_format) f.date_format = 'date_ddmmyyyy'
+                            if (type === 'number' && !f.number_pattern)
+                              f.number_pattern = 'quantity'
+                            if (type === 'registry' && !f.registry_mask) f.registry_mask = 'email'
+                            if (type === 'evaluative' && !f.evaluative_scale)
+                              f.evaluative_scale = 'smiley'
                           })
                         }
                       >
@@ -700,9 +728,85 @@ export function FormBuilder({
                       rows={2}
                     />
                   </div>
+
+                  {selectedField.type === 'date' && (
+                    <div className="space-y-1.5">
+                      <Label>Formato de Data/Hora</Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {DATE_FORMATS.map((fmt) => {
+                          const isActive =
+                            (selectedField.date_format ?? 'date_ddmmyyyy') === fmt.value
+                          return (
+                            <button
+                              key={fmt.value}
+                              type="button"
+                              aria-pressed={isActive}
+                              onClick={() =>
+                                updateField(selectedBlock!.id, selectedField.id, (f) => {
+                                  f.date_format = fmt.value
+                                })
+                              }
+                              className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                                isActive
+                                  ? 'border-blue-500 bg-blue-950/60 text-blue-200'
+                                  : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-600 hover:text-slate-200'
+                              }`}
+                            >
+                              {fmt.label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedField.type === 'number' && (
+                    <NumberProperties
+                      field={selectedField}
+                      onChange={(fn) =>
+                        updateField(selectedBlock!.id, selectedField.id, (f) => fn(f))
+                      }
+                    />
+                  )}
+
+                  {selectedField.type === 'registry' && (
+                    <div className="space-y-1">
+                      <Label htmlFor="prop-registry-mask">Máscara</Label>
+                      <Select
+                        value={selectedField.registry_mask ?? 'email'}
+                        onValueChange={(v) =>
+                          updateField(selectedBlock!.id, selectedField.id, (f) => {
+                            f.registry_mask = v as TemplateField['registry_mask']
+                          })
+                        }
+                      >
+                        <SelectTrigger id="prop-registry-mask" className="w-full bg-slate-950">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
+                          {REGISTRY_MASKS.map((m) => (
+                            <SelectItem key={m.value} value={m.value}>
+                              {m.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  {selectedField.type === 'evaluative' && (
+                    <EvaluativeProperties
+                      field={selectedField}
+                      onChange={(fn) =>
+                        updateField(selectedBlock!.id, selectedField.id, (f) => fn(f))
+                      }
+                    />
+                  )}
+
                   {isChoiceType(selectedField.type) && (
                     <FieldOptionsEditor
                       options={selectedField.options ?? []}
+                      safeMode={safeMode}
                       onChange={(opts) =>
                         updateField(selectedBlock!.id, selectedField.id, (f) => {
                           f.options = opts
@@ -710,10 +814,24 @@ export function FormBuilder({
                       }
                     />
                   )}
+
+                  <ComplementsSection
+                    selected={selectedField.complements ?? []}
+                    onToggle={(value) =>
+                      updateField(selectedBlock!.id, selectedField.id, (f) => {
+                        const list = f.complements ?? []
+                        f.complements = list.includes(value)
+                          ? list.filter((c) => c !== value)
+                          : [...list, value]
+                      })
+                    }
+                  />
+
                   {safeMode && (
                     <p className="rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-400">
-                      Em modo de edição segura, rótulos e instruções continuam editáveis; tipo e
-                      exclusão são limitados para preservar as respostas.
+                      Em modo de edição segura, rótulos, opções e pesos continuam editáveis; tipo,
+                      exclusão de campos e de opções antigas são limitados para preservar as
+                      respostas.
                     </p>
                   )}
                   {selectedField.archived && (
@@ -798,6 +916,233 @@ export function FormBuilder({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  )
+}
+
+/* =============== Sub-componentes do painel de propriedades =============== */
+
+interface SubProps {
+  field: TemplateField
+  /** Aplica uma mutação imutável no campo selecionado. */
+  onChange: (fn: (field: TemplateField) => void) => void
+}
+
+/** Seção "Padrão Numérico" + "Unidade de Medida / Conversão" do campo number. */
+function NumberProperties({ field, onChange }: SubProps) {
+  const pattern = field.number_pattern ?? 'quantity'
+  const unit = field.unit ?? ''
+  return (
+    <>
+      <div className="space-y-1.5">
+        <Label>Padrão Numérico</Label>
+        <div className="flex flex-wrap gap-1.5">
+          {NUMBER_PATTERNS.map((p) => {
+            const isActive = pattern === p.value
+            return (
+              <button
+                key={p.value}
+                type="button"
+                aria-pressed={isActive}
+                onClick={() =>
+                  onChange((f) => {
+                    f.number_pattern = p.value
+                  })
+                }
+                className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                  isActive
+                    ? 'border-blue-500 bg-blue-950/60 text-blue-200'
+                    : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-600 hover:text-slate-200'
+                }`}
+              >
+                {p.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <div className="space-y-1">
+        <Label>Unidade de Medida / Conversão</Label>
+        <Select
+          value={unit || 'none'}
+          onValueChange={(v) =>
+            onChange((f) => {
+              f.unit = v === 'none' ? undefined : v
+            })
+          }
+        >
+          <SelectTrigger className="w-full bg-slate-950">
+            <SelectValue placeholder="Sem unidade (opcional)" />
+          </SelectTrigger>
+          <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
+            <SelectItem value="none">Sem unidade</SelectItem>
+            {UNIT_CATEGORIES.map((cat) => (
+              <SelectGroup key={cat.name}>
+                <SelectLabel className="text-[10px] uppercase tracking-wider text-slate-500">
+                  {cat.name}
+                </SelectLabel>
+                {cat.units.map((u) => (
+                  <SelectItem key={u.value} value={u.value}>
+                    {u.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </>
+  )
+}
+
+/** Seção de escala do campo evaluative (carinhas, conformidade, S/N). */
+function EvaluativeProperties({ field, onChange }: SubProps) {
+  const scale = field.evaluative_scale ?? 'smiley'
+  const yn = field.yes_no_weights ?? { yes: null, no: null }
+  const ynComp = field.yes_no_required_complements ?? { yes: [], no: [] }
+  const showYesNoConfig = scale === 'yes_no'
+  return (
+    <div className="space-y-2">
+      <div className="space-y-1">
+        <Label htmlFor="prop-eval-scale">Escala</Label>
+        <Select
+          value={scale}
+          onValueChange={(v) =>
+            onChange((f) => {
+              f.evaluative_scale = v as EvaluativeScale
+            })
+          }
+        >
+          <SelectTrigger id="prop-eval-scale" className="w-full bg-slate-950">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
+            {EVALUATIVE_SCALES.map((s) => (
+              <SelectItem key={s.value} value={s.value}>
+                {s.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {scale === 'smiley' && (
+        <p className="rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-400">
+          Escala de Muito Insatisfeito (vermelho, triste) a Muito Satisfeito (verde, sorrindo) com 5
+          carinhas.
+        </p>
+      )}
+      {scale === 'conformity' && (
+        <p className="rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-400">
+          Conforme (verde) · Não Conforme (vermelho) · Não se Aplica (cinza).
+        </p>
+      )}
+      {showYesNoConfig && (
+        <div className="space-y-2 rounded-md border border-slate-800 bg-slate-950/50 p-2.5">
+          <div className="text-xs font-medium text-slate-300">Configuração do S/N</div>
+          {(['yes', 'no'] as const).map((side) => (
+            <div key={side} className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <span className="w-10 text-xs font-medium text-slate-300">
+                  {side === 'yes' ? 'Sim' : 'Não'}
+                </span>
+                <Input
+                  type="number"
+                  value={yn[side] ?? ''}
+                  onFocus={(e) => e.target.select()}
+                  placeholder="Peso (opcional)"
+                  title="Peso numérico desta resposta — vazio = Não se aplica"
+                  className="h-7 w-28 bg-slate-950 border-slate-800 text-slate-100 text-xs"
+                  onChange={(e) =>
+                    onChange((f) => {
+                      const value = e.target.value === '' ? null : Number(e.target.value)
+                      f.yes_no_weights = {
+                        ...(f.yes_no_weights ?? { yes: null, no: null }),
+                        [side]: value,
+                      }
+                    })
+                  }
+                />
+              </div>
+              <div className="pl-10">
+                <div className="mb-1 text-[10px] uppercase tracking-wider text-slate-500">
+                  Exige complemento
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {FIELD_COMPLEMENTS.map((c) => {
+                    const active = ynComp[side].includes(c.value)
+                    return (
+                      <button
+                        key={c.value}
+                        type="button"
+                        aria-pressed={active}
+                        title={active ? `Remover ${c.label}` : `Exigir ${c.label}`}
+                        onClick={() =>
+                          onChange((f) => {
+                            const comp = f.yes_no_required_complements ?? { yes: [], no: [] }
+                            const list = comp[side]
+                            f.yes_no_required_complements = {
+                              ...comp,
+                              [side]: active
+                                ? list.filter((x) => x !== c.value)
+                                : [...list, c.value],
+                            }
+                          })
+                        }
+                        className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
+                          active
+                            ? 'border-blue-500 bg-blue-950/60 text-blue-200'
+                            : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-600 hover:text-slate-200'
+                        }`}
+                      >
+                        {c.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Seção "Selecione os complementos desejados" — presente em todos os tipos. */
+function ComplementsSection({
+  selected,
+  onToggle,
+}: {
+  selected: FieldComplement[]
+  onToggle: (value: FieldComplement) => void
+}) {
+  return (
+    <div className="space-y-1.5 border-t border-slate-800 pt-3">
+      <Label>Selecione os complementos desejados</Label>
+      <div className="flex flex-wrap gap-1.5">
+        {FIELD_COMPLEMENTS.map((c) => {
+          const active = selected.includes(c.value)
+          return (
+            <button
+              key={c.value}
+              type="button"
+              aria-pressed={active}
+              onClick={() => onToggle(c.value)}
+              className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                active
+                  ? 'border-emerald-500 bg-emerald-950/50 text-emerald-200'
+                  : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-600 hover:text-slate-200'
+              }`}
+            >
+              {c.label}
+            </button>
+          )
+        })}
+      </div>
+      <p className="rounded-md border border-slate-800 bg-slate-950/60 p-2 text-xs text-slate-500">
+        Complementos ficam disponíveis para o operador ao preencher este campo (não são obrigatórios
+        aqui; obrigatoriedade por resposta é configurada na opção ou no S/N).
+      </p>
     </div>
   )
 }
