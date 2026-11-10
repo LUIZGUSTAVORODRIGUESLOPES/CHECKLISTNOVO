@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-10T19:19:00.218Z",
+  "generatedAt": "2026-11-10T19:47:47.883Z",
   "collections": [
     {
       "name": "users",
@@ -228,11 +228,19 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "subject_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "subjects"
         }
       ],
       "indexes": [
         "CREATE INDEX idx_templates_department ON templates (department_id)",
-        "CREATE INDEX idx_templates_created_by ON templates (created_by)"
+        "CREATE INDEX idx_templates_created_by ON templates (created_by)",
+        "CREATE INDEX `idx_templates_subject` ON `templates` (subject_id)"
       ]
     },
     {
@@ -417,6 +425,59 @@
         "CREATE INDEX idx_action_plans_response ON action_plans (response_id)",
         "CREATE INDEX idx_action_plans_responsible ON action_plans (responsible_id)"
       ]
+    },
+    {
+      "name": "subjects",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "department_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "departments"
+        },
+        {
+          "name": "active",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": ["CREATE UNIQUE INDEX idx_subjects_name ON subjects (name)"]
     }
   ]
 }
