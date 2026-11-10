@@ -96,7 +96,56 @@ routerAdd(
 )
 
 /**
- * PATCH /api/globex/users/{id}
+ * GET /backend/v1/globex/users
+ *
+ * Lista todos os perfis (profiles) ordenados por nome completo.
+ *
+ * Por que rota server-side: a regra de lista da coleção `profiles` usa um
+ * self-join (`@collection.profiles.user = @request.auth.id &&
+ * @collection.profiles.role = 'admin'`) que NÃO funciona como subconsulta
+ * EXISTS no PocketBase — na prática cada admin só enxerga o próprio perfil,
+ * escondendo usuários recém-criados da lista. Aqui a verificação de admin é
+ * feita no hook (perfil do chamador com role 'admin' e ativo) e a listagem
+ * roda com acesso pleno do app, retornando todos os perfis.
+ */
+routerAdd(
+  'GET',
+  '/backend/v1/globex/users',
+  (e) => {
+    if (!e.auth || !e.auth.id) {
+      throw new UnauthorizedError('Sessão não autenticada.')
+    }
+
+    let callerProfile
+    try {
+      callerProfile = e.app.findFirstRecordByFilter('profiles', `user = "${e.auth.id}"`)
+    } catch (_) {
+      throw new ForbiddenError('Perfil não encontrado para o usuário autenticado.')
+    }
+    if (callerProfile.getString('role') !== 'admin' || !callerProfile.getBool('active')) {
+      throw new ForbiddenError('Somente administradores podem listar usuários.')
+    }
+
+    const profileRecords = e.app.findRecordsByFilter('profiles', '', 'full_name', 0, 0)
+    const items = profileRecords.map((p) => ({
+      id: p.id,
+      user: p.getString('user'),
+      full_name: p.getString('full_name'),
+      email: p.getString('email'),
+      role: p.getString('role'),
+      active: p.getBool('active'),
+      department_id: p.getString('department_id'),
+      created: p.getString('created'),
+      updated: p.getString('updated'),
+    }))
+
+    return e.json(200, { items })
+  },
+  $apis.requireAuth(),
+)
+
+/**
+ * PATCH /backend/v1/globex/users/{id}
  *
  * Atualiza o registro auth em `users` e o perfil em `profiles`.
  * A troca de senha é OPCIONAL (password vazio mantém a atual). A sessão do

@@ -21,14 +21,29 @@ export type UserPayload = {
 }
 
 /**
- * Lista os registros de profiles com o departamento vinculado expandido,
- * ordenados por nome completo.
+ * Lista os registros de profiles ordenados por nome completo.
+ *
+ * Usa a rota server-side GET /backend/v1/globex/users: a regra de lista da
+ * coleção `profiles` (self-join @collection.profiles.role = 'admin') não
+ * funciona como EXISTS no PocketBase e faz cada admin enxergar apenas o
+ * próprio perfil — o que escondia usuários recém-criados da listagem.
+ * Se a rota falhar (deploy antigo), cai no caminho direto do SDK.
  */
 export async function listProfilesWithDepartment(): Promise<ProfileWithDepartment[]> {
-  return pb.collection('profiles').getFullList<ProfileWithDepartment>({
-    sort: 'full_name',
-    expand: 'department_id',
-  })
+  try {
+    const res = await pb.send<{ items: ProfileWithDepartment[] }>('/backend/v1/globex/users', {
+      method: 'GET',
+    })
+    return res.items ?? []
+  } catch (err) {
+    // Fallback: listagem direta (mesma ordenação). Mantém a tela funcionando
+    // caso a rota server-side não esteja disponível.
+    console.warn('Listagem via rota server-side falhou, usando SDK direto:', err)
+    return pb.collection('profiles').getFullList<ProfileWithDepartment>({
+      sort: 'full_name',
+      expand: 'department_id',
+    })
+  }
 }
 
 /**
