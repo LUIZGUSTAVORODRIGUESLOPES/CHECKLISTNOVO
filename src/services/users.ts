@@ -1,4 +1,5 @@
 import pb from '@/lib/pocketbase/client'
+import { ClientResponseError } from 'pocketbase'
 import type { ProfileRecord, UserRole } from '@/types/auth'
 import type { DepartmentRecord } from '@/types/department'
 
@@ -66,14 +67,25 @@ export async function listProfilesWithDepartment(): Promise<ProfileWithDepartmen
  * Envia a foto de perfil (multipart/form-data, campo "avatar") pela rota
  * server-side POST /backend/v1/globex/users/{id}/avatar. O hook valida
  * PNG/JPG/WEBP e grava o arquivo no campo file `avatar` do profile.
+ *
+ * Fallback: se a rota ainda não estiver disponível (deploy antigo), envia
+ * direto pela API de records do SDK — a regra update da coleção profiles
+ * (@collection.profiles… admin) permite o próprio admin gravar o avatar.
  */
 export async function uploadUserAvatar(profileId: string, file: File): Promise<void> {
   const form = new FormData()
   form.append('avatar', file)
-  await pb.send(`/backend/v1/globex/users/${profileId}/avatar`, {
-    method: 'POST',
-    body: form,
-  })
+  try {
+    await pb.send(`/backend/v1/globex/users/${profileId}/avatar`, {
+      method: 'POST',
+      body: form,
+    })
+  } catch (err) {
+    const status = err instanceof ClientResponseError ? err.status : 0
+    // 404 = rota ausente (deploy antigo); 400/500 = erro real, repassa.
+    if (status !== 404) throw err
+    await pb.collection('profiles').update(profileId, { avatar: file })
+  }
 }
 
 /**

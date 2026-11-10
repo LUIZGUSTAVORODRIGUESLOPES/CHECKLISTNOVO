@@ -176,7 +176,8 @@ routerAdd(
         active: p.getBool('active'),
         department_id: p.getString('department_id'),
         avatar: avatar || '',
-        avatar_url: avatar ? p.fileUrl(avatar) : '',
+        // O campo `avatar` não é protected: URL pública padrão, sem token.
+        avatar_url: avatar ? `/api/files/profiles/${p.id}/${avatar}?thumb=100x100` : '',
         has_operational_links: linkedCollections.length > 0,
         linked_collections: linkedCollections,
         created: p.getString('created'),
@@ -192,6 +193,10 @@ routerAdd(
 // =====================================================================
 // PATCH /backend/v1/globex/users/{id} — atualizar usuário
 // =====================================================================
+// Correção do bug "Não deixou salvar a foto" (PATCH 500 em runtime): editar
+// os registros buscados (findRecordById) direto, SEM recriar o Record com
+// `new Record({...})` — o construtor da JSVM só aceita uma Collection, e um
+// objeto literal { collection, id } derrubava a rota com erro 500.
 routerAdd(
   'PATCH',
   '/backend/v1/globex/users/{id}',
@@ -293,28 +298,28 @@ routerAdd(
     }
 
     e.app.runInTransaction((txApp) => {
-      // users: name, email e (opcionalmente) senha — SEM oldPassword
-      const userEdit = new Record({ collection: user.collection(), id: user.id })
-      if (fullName !== null) userEdit.set('name', fullName)
+      // users: name, email e (opcionalmente) senha — SEM oldPassword.
+      // user/profile são os registros JÁ buscados (findRecordById): o update
+      // aplica somente os campos enviados, preservando o restante do registro.
+      if (fullName !== null) user.set('name', fullName)
       if (email !== null) {
-        userEdit.setEmail(email)
-        userEdit.set('emailVisibility', true)
+        user.setEmail(email)
+        user.set('emailVisibility', true)
       }
       if (passwordProvided) {
-        userEdit.setPassword(password)
+        user.setPassword(password)
       }
-      txApp.save(userEdit)
+      txApp.save(user)
 
       // profiles: active, full_name, email, role, department_id
-      const profileEdit = new Record({ collection: profile.collection(), id: profile.id })
-      if (fullName !== null) profileEdit.set('full_name', fullName)
-      if (email !== null) profileEdit.set('email', email)
-      if (role !== null) profileEdit.set('role', role)
-      if (active !== null) profileEdit.set('active', active)
+      if (fullName !== null) profile.set('full_name', fullName)
+      if (email !== null) profile.set('email', email)
+      if (role !== null) profile.set('role', role)
+      if (active !== null) profile.set('active', active)
       if (departmentId !== null) {
-        profileEdit.set('department_id', departmentId) // '' limpa o vínculo
+        profile.set('department_id', departmentId) // '' limpa o vínculo
       }
-      txApp.save(profileEdit)
+      txApp.save(profile)
     })
 
     return e.json(200, { ok: true })
@@ -465,6 +470,12 @@ routerAdd(
 // POST /backend/v1/globex/users/{id}/avatar — upload de foto de perfil
 // =====================================================================
 // multipart/form-data com campo "avatar" (PNG/JPG/WEBP, até 5 MB).
+//
+// Correção do bug "Não deixou salvar a foto": filesystem.File não expõe a
+// propriedade `type` (apenas name/originalName/reader/size) — a checagem
+// anterior files[0].type rejeitava TODOS os uploads com "Formato inválido"
+// (contentType sempre ""). Aqui o Content-Type vem do header multipart e
+// mimeTypes do campo `avatar` da coleção validam de fato na gravação.
 routerAdd(
   'POST',
   '/backend/v1/globex/users/{id}/avatar',
@@ -505,19 +516,28 @@ routerAdd(
       throw new BadRequestError('Nenhuma imagem enviada (campo "avatar").')
     }
 
-    // Validação pelo Content-Type detectado pelo parser multipart.
-    const contentType = String(files[0].type || '').toLowerCase()
-    if (!['image/png', 'image/jpeg', 'image/webp'].includes(contentType)) {
-      throw new BadRequestError('Formato inválido. Envie uma imagem PNG, JPG ou WEBP.')
+    // Tamanho: o campo file já limita a 5 MB na gravação, mas a mensagem
+    // fica mais clara validando aqui pelo size do filesystem.File.
+    if (files[0].size > 5242880) {
+      throw new BadRequestError('A imagem deve ter no máximo 5 MB.')
     }
 
     profile.set('avatar', files[0])
     e.app.save(profile)
 
+    const savedAvatar = profile.getString('avatar')
+    if (!savedAvatar) {
+      throw new BadRequestError(
+        'Não foi possível salvar a imagem. Verifique o formato (PNG, JPG ou WEBP) e o tamanho máximo de 5 MB.',
+      )
+    }
+
     return e.json(200, {
       ok: true,
-      avatar: profile.getString('avatar'),
-      avatar_url: profile.fileUrl(profile.getString('avatar')),
+      avatar: savedAvatar,
+      // O campo `avatar` não é protected: a URL pública padrão serve o
+      // arquivo sem token (mesma forma usada pelo frontend em avatarUrl()).
+      avatar_url: `/api/files/profiles/${profileId}/${savedAvatar}?thumb=100x100`,
     })
   },
   $apis.requireAuth(),

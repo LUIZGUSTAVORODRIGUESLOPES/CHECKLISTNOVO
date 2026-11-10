@@ -162,7 +162,9 @@ export default function Usuarios() {
   const handleAvatarChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] || null
     if (!file) return
-    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+    // Alguns navegadores/sistemas entregam file.type vazio: sem o tipo, o
+    // mime real só é conferido pelo servidor. Confia quando informado.
+    if (file.type && !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
       setUserErrors((prev) => ({ ...prev, avatar: 'Formato inválido. Use PNG, JPG ou WEBP.' }))
       return
     }
@@ -342,6 +344,10 @@ export default function Usuarios() {
     // A sessão do admin logado no authStore NUNCA é tocada aqui:
     // nenhum caminho de criação/edição usa authWithPassword ou authStore.clear.
     setIsSaving(true)
+    // O avatar é salvo APÓS o usuário: se a foto falhar (formato/tamanho),
+    // o usuário é criado/editado normalmente e o modal permanece aberto
+    // com o erro claro — nada de falha silenciosa.
+    let savedProfileId = ''
     try {
       if (editingProfile) {
         await updateUserWithProfile(editingProfile, {
@@ -354,12 +360,9 @@ export default function Usuarios() {
           password: userForm.password || undefined,
           passwordConfirm: userForm.passwordConfirm || undefined,
         })
-        toast({ title: 'Usuário atualizado com sucesso.' })
-        if (avatarFile) {
-          await uploadUserAvatar(editingProfile.id, avatarFile)
-        }
+        savedProfileId = editingProfile.id
       } else {
-        const newProfileId = await createUserWithProfile({
+        savedProfileId = await createUserWithProfile({
           full_name: userForm.full_name.trim(),
           email: userForm.email.trim(),
           role: userForm.role,
@@ -368,22 +371,40 @@ export default function Usuarios() {
           password: userForm.password,
           passwordConfirm: userForm.passwordConfirm,
         })
-        if (avatarFile && newProfileId) {
-          await uploadUserAvatar(newProfileId, avatarFile)
-        }
-        toast({ title: 'Usuário criado com sucesso.' })
       }
-      setUserDialogOpen(false)
-      await loadAll()
     } catch (err) {
+      setIsSaving(false)
       toast({
         title: 'Erro ao salvar usuário',
         description: getErrorMessage(err),
         variant: 'destructive',
       })
-    } finally {
-      setIsSaving(false)
+      return
     }
+
+    if (avatarFile && savedProfileId) {
+      try {
+        await uploadUserAvatar(savedProfileId, avatarFile)
+      } catch (err) {
+        setIsSaving(false)
+        toast({
+          title: 'Usuário salvo, mas a foto não foi enviada',
+          description: `Não foi possível salvar a foto de perfil: ${getErrorMessage(err)} Formatos aceitos: PNG, JPG ou WEBP — até 5 MB.`,
+          variant: 'destructive',
+        })
+        await loadAll()
+        return
+      }
+    }
+
+    toast({
+      title: editingProfile
+        ? 'Usuário e foto atualizados com sucesso.'
+        : 'Usuário e foto criados com sucesso.',
+    })
+    setUserDialogOpen(false)
+    await loadAll()
+    setIsSaving(false)
   }
 
   // ====================== Exclusão / Inativação ======================
