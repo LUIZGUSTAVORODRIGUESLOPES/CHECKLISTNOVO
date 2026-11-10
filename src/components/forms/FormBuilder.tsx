@@ -38,6 +38,7 @@ import {
   Settings2,
   Trash2,
 } from 'lucide-react'
+import { FieldOptionsEditor } from '@/components/forms/FieldOptionsEditor'
 import type { DepartmentRecord } from '@/types/department'
 import type { SubjectRecord } from '@/types/subject'
 import {
@@ -61,14 +62,15 @@ const newBlock = (index: number): TemplateBlock => ({
   fields: [],
 })
 
+const isChoiceType = (type: FieldType) => type === 'select' || type === 'multiselect'
+
 const newField = (type: FieldType, index: number): TemplateField => ({
   id: newId('fld'),
   type,
-  label:
-    type === 'select' || type === 'multiselect' ? `Nova Opção ${index}` : `Novo Campo ${index}`,
+  label: isChoiceType(type) ? 'Nova Lista Suspensa' : `Novo Campo ${index}`,
   instructions: '',
   required: false,
-  options: type === 'select' || type === 'multiselect' ? ['Opção 1'] : undefined,
+  options: isChoiceType(type) ? ['Opção 1'] : undefined,
 })
 
 const TOOLBOX_ITEMS: { type: FieldType; icon: React.ReactNode }[] = [
@@ -664,7 +666,7 @@ export function FormBuilder({
                           updateField(selectedBlock!.id, selectedField.id, (f) => {
                             const type = v as FieldType
                             f.type = type
-                            if (type === 'select' || type === 'multiselect') {
+                            if (isChoiceType(type)) {
                               if (!f.options || f.options.length === 0) f.options = ['Opção 1']
                             }
                           })
@@ -698,6 +700,16 @@ export function FormBuilder({
                       rows={2}
                     />
                   </div>
+                  {isChoiceType(selectedField.type) && (
+                    <FieldOptionsEditor
+                      options={selectedField.options ?? []}
+                      onChange={(opts) =>
+                        updateField(selectedBlock!.id, selectedField.id, (f) => {
+                          f.options = opts
+                        })
+                      }
+                    />
+                  )}
                   {safeMode && (
                     <p className="rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-400">
                       Em modo de edição segura, rótulos e instruções continuam editáveis; tipo e
