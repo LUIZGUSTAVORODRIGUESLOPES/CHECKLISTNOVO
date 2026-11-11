@@ -130,15 +130,19 @@ export function PreviewInput({
   field,
   value,
   fieldUnit,
+  invalid,
   onValue,
 }: {
   field: TemplateField
   value: PreviewValues[string] | null
   fieldUnit?: string
+  /** true quando a checagem de submissão marcou o campo com erro. */
+  invalid?: boolean
   onValue: (value: PreviewValues[string]) => void
 }) {
-  const inputClass =
-    'border-slate-800 bg-slate-950/60 text-sm text-slate-100 placeholder:text-slate-600'
+  const inputClass = invalid
+    ? 'border-red-500/80 bg-slate-950/60 text-sm text-slate-100 placeholder:text-slate-600 focus-visible:ring-red-500/40'
+    : 'border-slate-800 bg-slate-950/60 text-sm text-slate-100 placeholder:text-slate-600'
   const activeOptions = (field.options ?? []).map(normalizeOption).filter((o) => o.active !== false)
   const selected: string[] = Array.isArray(value) ? value : []
   const toggleMulti = (optLabel: string) => {
@@ -271,6 +275,7 @@ export function PreviewInput({
             value={(value as string) ?? ''}
             onChange={(masked) => onValue(masked)}
             className={inputClass}
+            forceError={invalid}
           />
           <p className="text-[11px] text-slate-500">
             Máscara: {REGISTRY_MASKS.find((m) => m.value === mask)?.label ?? mask}

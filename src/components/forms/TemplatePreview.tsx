@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import type { CSSProperties } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -13,7 +14,11 @@ import { Label } from '@/components/ui/label'
 import { Eye, Info, ShieldAlert } from 'lucide-react'
 import { UNIT_CATEGORIES, type TemplateBlock } from '@/types/template'
 import { ComplementsRow, PreviewInput, type PreviewValues } from '@/components/forms/PreviewInput'
-import { findInvalidRegistryFields, type InvalidRegistryEntry } from '@/lib/formValidation'
+import {
+  findInvalidRegistryFields,
+  requiredFieldKey,
+  type InvalidRegistryEntry,
+} from '@/lib/formValidation'
 import { toast } from '@/hooks/use-toast'
 
 export interface PreviewHeaderInfo {
@@ -37,25 +42,44 @@ export function TemplatePreview({ open, onOpenChange, header, blocks }: Template
   const setValue = (key: string, value: PreviewValues[string]) =>
     setValues((prev) => ({ ...prev, [key]: value }))
 
-  /** Checagem geral (bloqueio de submissão): lista e toast quando há máscara inválida. */
+  /**
+   * Checagem geral antes de salvar: máscaras registry inválidas + campos
+   * obrigatórios vazios/incompletos. Bloqueia a submissão com toast e marca
+   * visualmente (borda vermelha) cada campo com problema.
+   */
   const checkBeforeSubmit = () => {
-    const invalid = findInvalidRegistryFields(
-      blocks,
-      values,
-      (blockId, fieldId) => `${blockId}:${fieldId}`,
-    )
+    const invalid = findInvalidRegistryFields(blocks, values, requiredFieldKey)
     if (invalid.length > 0) {
       setInvalidList(invalid)
+      const missing = invalid.filter((e) => e.missing).length
       toast({
         title: 'Não foi possível salvar',
-        description: `Há ${invalid.length} campo(s) com formato inválido. Corrija os campos destacados.`,
+        description:
+          missing > 0
+            ? `${invalid.length} campo(s) pendente(s): ${missing} obrigatório(s) não preenchido(s). Corrija os campos destacados.`
+            : `Há ${invalid.length} campo(s) com formato inválido. Corrija os campos destacados.`,
         variant: 'destructive',
       })
       return
     }
     setInvalidList([])
-    toast({ title: 'Tudo certo', description: 'Nenhum campo com máscara inválido.' })
+    toast({ title: 'Tudo certo', description: 'Formulário válido para envio.' })
   }
+
+  /** Chaves (blockId:fieldId) com erro — usadas para destacar os inputs. */
+  const invalidKeys = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const e of invalidList) {
+      const entry = blocks
+        .flatMap((b) => b.fields.map((f) => ({ b, f })))
+        .find(
+          ({ b, f }) =>
+            b.title === e.blockTitle && (f.label || 'Campo sem rótulo') === e.fieldLabel,
+        )
+      if (entry) map.set(`${entry.b.id}:${entry.f.id}`, e.message)
+    }
+    return map
+  }, [invalidList, blocks])
 
   const activeBlocks = useMemo(
     () => blocks.filter((b) => b.fields.some((f) => !f.archived)),
@@ -95,8 +119,8 @@ export function TemplatePreview({ open, onOpenChange, header, blocks }: Template
           <div className="mt-1 flex items-start gap-2 rounded-md border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
             <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
             <span>
-              Modo de visualização. As interações aqui não salvam dados nem validam campos
-              obrigatórios.
+              Modo de visualização: nada é salvo. A checagem abaixo valida máscaras e campos
+              obrigatórios antes de “salvar”.
             </span>
           </div>
         </DialogHeader>
@@ -105,7 +129,7 @@ export function TemplatePreview({ open, onOpenChange, header, blocks }: Template
           {invalidList.length > 0 && (
             <div className="rounded-md border border-red-900/60 bg-red-950/30 px-3 py-2 text-xs text-red-200">
               <p className="mb-1 flex items-center gap-1.5 font-semibold">
-                <ShieldAlert className="h-3.5 w-3.5" /> Campos com formato inválido:
+                <ShieldAlert className="h-3.5 w-3.5" /> Corrija antes de salvar:
               </p>
               <ul className="list-disc pl-4">
                 {invalidList.map((e, i) => (
@@ -125,13 +149,21 @@ export function TemplatePreview({ open, onOpenChange, header, blocks }: Template
             </div>
           ) : (
             activeBlocks.map((block) => (
-              <PreviewBlock key={block.id} block={block} values={values} onValue={setValue} />
+              <PreviewBlock
+                key={block.id}
+                block={block}
+                values={values}
+                onValue={setValue}
+                invalidKeys={invalidKeys}
+              />
             ))
           )}
         </div>
 
         <div className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-800 pt-3">
-          <p className="text-[11px] text-slate-500">Checagem geral de máscaras antes de salvar.</p>
+          <p className="text-[11px] text-slate-500">
+            Checagem geral antes de salvar (máscaras + obrigatoriedade).
+          </p>
           <Button type="button" size="sm" onClick={checkBeforeSubmit}>
             <ShieldAlert className="mr-2 h-4 w-4" /> Verificar e Salvar
           </Button>
@@ -145,10 +177,13 @@ function PreviewBlock({
   block,
   values,
   onValue,
+  invalidKeys,
 }: {
   block: TemplateBlock
   values: PreviewValues
   onValue: (key: string, value: PreviewValues[string]) => void
+  /** Chaves (blockId:fieldId) com erro após a checagem de submissão. */
+  invalidKeys: Map<string, string>
 }) {
   const activeFields = block.fields.filter((f) => !f.archived)
   if (activeFields.length === 0) return null
@@ -170,12 +205,15 @@ function PreviewBlock({
             const fieldKey = key(field.id)
             const value = values[fieldKey] ?? null
             const fieldUnit = field.type === 'number' ? unitLabel(field.unit) : undefined
+            const errorMessage = invalidKeys.get(fieldKey)
             return (
               <div
                 key={field.id}
-                className={`space-y-1.5 rounded-md border border-slate-800 bg-slate-950/40 p-3 ${
-                  field.type === 'evaluative' ? 'md:col-span-2 xl:col-span-3' : ''
-                }`}
+                className={`space-y-1.5 rounded-md border p-3 ${
+                  errorMessage
+                    ? 'border-red-500/70 bg-red-950/20'
+                    : 'border-slate-800 bg-slate-950/40'
+                } ${field.type === 'evaluative' ? 'md:col-span-2 xl:col-span-3' : ''}`}
               >
                 <Label className="text-xs text-slate-300">
                   {field.label || 'Campo sem rótulo'}
@@ -188,8 +226,12 @@ function PreviewBlock({
                   field={field}
                   value={value}
                   fieldUnit={fieldUnit}
+                  invalid={!!errorMessage}
                   onValue={(v) => onValue(fieldKey, v)}
                 />
+                {errorMessage && (
+                  <p className="text-[11px] font-medium text-red-400">{errorMessage}</p>
+                )}
                 <ComplementsRow
                   complements={field.complements ?? []}
                   fieldKey={fieldKey}

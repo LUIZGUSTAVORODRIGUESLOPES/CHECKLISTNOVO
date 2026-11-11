@@ -69,7 +69,7 @@ export const REGISTRY_MASK_DEFS: Record<RegistryMask, MaskDefinition> = {
   },
   phone: {
     digits: 11,
-    maxLen: 16,
+    maxLen: 15,
     format: (t) => {
       const v = t.replace(/\D+/g, '')
       if (v.length === 0) return ''
@@ -167,13 +167,24 @@ const FREE_TEXT_MASKS: RegistryMask[] = ['email', 'uf', 'uf_city', 'plate', 'mer
 export function formatRegistryValue(mask: RegistryMask, text: string): string {
   const def = REGISTRY_MASK_DEFS[mask]
   if (FREE_TEXT_MASKS.includes(mask)) return def.format(text.slice(0, def.maxLen))
-  // Re-mascara a partir dos dígitos (corte já limitado por digits).
-  return def.format(stripNonDigits(text))
+  // Re-mascara a partir dos dígitos, cortados no limite da máscara
+  // (ex.: CEP aceita no máximo 8 dígitos — o 9º simplesmente não entra).
+  const rawDigits = def.digits ? stripNonDigits(text).slice(0, def.digits) : stripNonDigits(text)
+  return def.format(rawDigits).slice(0, def.maxLen)
 }
 
 /** Placeholder que indica o formato real da máscara (não exemplo estático). */
 export function registryPlaceholder(mask: RegistryMask): string {
   return REGISTRY_MASK_DEFS[mask].placeholder
+}
+
+/**
+ * Limite físico de caracteres do input (maxLength) — ex.: CEP 9 ("00000-000"),
+ * CPF 14, CNPJ 18, Telefone 15 (com DDI +) ou 14, Placa 8 ("AAA-9999").
+ * Impede a continuação da digitação assim que o limite é atingido.
+ */
+export function registryMaxLength(mask: RegistryMask): number {
+  return REGISTRY_MASK_DEFS[mask].maxLen
 }
 
 /** Valida o valor (já formatado) de um campo registry. */

@@ -724,6 +724,20 @@ export function FormBuilder({
                       </Select>
                     )}
                   </div>
+                  <div className="flex items-center gap-2 pt-1">
+                    <Switch
+                      id="prop-required"
+                      checked={!!selectedField.required}
+                      onCheckedChange={(v) =>
+                        updateField(selectedBlock!.id, selectedField.id, (f) => {
+                          f.required = v
+                        })
+                      }
+                    />
+                    <Label htmlFor="prop-required" className="cursor-pointer font-normal">
+                      Campo Obrigatório
+                    </Label>
+                  </div>
                   <div className="space-y-1">
                     <Label htmlFor="prop-instructions">Instruções</Label>
                     <Textarea
