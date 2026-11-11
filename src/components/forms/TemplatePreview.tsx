@@ -7,11 +7,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
-import { Eye, Info } from 'lucide-react'
+import { Eye, Info, ShieldAlert } from 'lucide-react'
 import { UNIT_CATEGORIES, type TemplateBlock } from '@/types/template'
 import { ComplementsRow, PreviewInput, type PreviewValues } from '@/components/forms/PreviewInput'
+import { findInvalidRegistryFields, type InvalidRegistryEntry } from '@/lib/formValidation'
+import { toast } from '@/hooks/use-toast'
 
 export interface PreviewHeaderInfo {
   name: string
@@ -30,8 +33,29 @@ export interface TemplatePreviewProps {
 /** Diálogo amplo que exibe o formulário como o operador o verá na execução. */
 export function TemplatePreview({ open, onOpenChange, header, blocks }: TemplatePreviewProps) {
   const [values, setValues] = useState<PreviewValues>({})
+  const [invalidList, setInvalidList] = useState<InvalidRegistryEntry[]>([])
   const setValue = (key: string, value: PreviewValues[string]) =>
     setValues((prev) => ({ ...prev, [key]: value }))
+
+  /** Checagem geral (bloqueio de submissão): lista e toast quando há máscara inválida. */
+  const checkBeforeSubmit = () => {
+    const invalid = findInvalidRegistryFields(
+      blocks,
+      values,
+      (blockId, fieldId) => `${blockId}:${fieldId}`,
+    )
+    if (invalid.length > 0) {
+      setInvalidList(invalid)
+      toast({
+        title: 'Não foi possível salvar',
+        description: `Há ${invalid.length} campo(s) com formato inválido. Corrija os campos destacados.`,
+        variant: 'destructive',
+      })
+      return
+    }
+    setInvalidList([])
+    toast({ title: 'Tudo certo', description: 'Nenhum campo com máscara inválido.' })
+  }
 
   const activeBlocks = useMemo(
     () => blocks.filter((b) => b.fields.some((f) => !f.archived)),
@@ -78,6 +102,20 @@ export function TemplatePreview({ open, onOpenChange, header, blocks }: Template
         </DialogHeader>
 
         <div className="flex-1 space-y-4 overflow-y-auto pr-1">
+          {invalidList.length > 0 && (
+            <div className="rounded-md border border-red-900/60 bg-red-950/30 px-3 py-2 text-xs text-red-200">
+              <p className="mb-1 flex items-center gap-1.5 font-semibold">
+                <ShieldAlert className="h-3.5 w-3.5" /> Campos com formato inválido:
+              </p>
+              <ul className="list-disc pl-4">
+                {invalidList.map((e, i) => (
+                  <li key={i}>
+                    {e.blockTitle} → {e.fieldLabel}: {e.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {activeBlocks.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-800 bg-slate-900/30 p-10 text-center text-slate-400">
               <Eye className="mb-3 h-10 w-10" />
@@ -90,6 +128,13 @@ export function TemplatePreview({ open, onOpenChange, header, blocks }: Template
               <PreviewBlock key={block.id} block={block} values={values} onValue={setValue} />
             ))
           )}
+        </div>
+
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-800 pt-3">
+          <p className="text-[11px] text-slate-500">Checagem geral de máscaras antes de salvar.</p>
+          <Button type="button" size="sm" onClick={checkBeforeSubmit}>
+            <ShieldAlert className="mr-2 h-4 w-4" /> Verificar e Salvar
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

@@ -7,7 +7,6 @@ import {
   type DateFormat,
   type FieldComplement,
   type NumberPattern,
-  type RegistryMask,
   type TemplateField,
 } from '@/types/template'
 import { Input } from '@/components/ui/input'
@@ -34,6 +33,7 @@ import {
   Timer,
   XCircle,
 } from 'lucide-react'
+import { RegistryInput } from '@/components/forms/RegistryInput'
 
 export type PreviewValues = Record<string, string | string[] | number | null>
 
@@ -50,18 +50,6 @@ const conformityOptions = [
   { value: 'nao_conforme', label: 'Não Conforme', icon: XCircle, className: 'text-red-400' },
   { value: 'na', label: 'Não se Aplica', icon: Circle, className: 'text-slate-500' },
 ]
-
-const registryMaskHints: Partial<Record<RegistryMask, string>> = {
-  email: 'ex.: nome@empresa.com',
-  uf: 'ex.: SP',
-  uf_city: 'ex.: SP — São Paulo',
-  cep: 'ex.: 00000-000',
-  phone: 'ex.: (00) 00000-0000',
-  cnpj: 'ex.: 00.000.000/0000-00',
-  cpf: 'ex.: 000.000.000-00',
-  plate: 'ex.: ABC-1234',
-  mercosul_plate: 'ex.: ABC1D23',
-}
 
 const dateInputType: Record<DateFormat, 'time' | 'date' | 'month'> = {
   time24: 'time',
@@ -276,17 +264,16 @@ export function PreviewInput({
 
     case 'registry': {
       const mask = field.registry_mask ?? 'email'
-      const maskLabel = REGISTRY_MASKS.find((m) => m.value === mask)?.label ?? mask
       return (
         <div className="space-y-1">
-          <Input
+          <RegistryInput
+            mask={mask}
             value={(value as string) ?? ''}
-            onChange={(e) => onValue(e.target.value)}
-            placeholder={registryMaskHints[mask]}
+            onChange={(masked) => onValue(masked)}
             className={inputClass}
           />
           <p className="text-[11px] text-slate-500">
-            Máscara: {maskLabel} — {registryMaskHints[mask] ?? ''}
+            Máscara: {REGISTRY_MASKS.find((m) => m.value === mask)?.label ?? mask}
           </p>
         </div>
       )
