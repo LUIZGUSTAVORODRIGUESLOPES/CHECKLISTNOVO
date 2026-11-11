@@ -234,7 +234,13 @@ function PreviewBlock({
                   errorMessage
                     ? 'border-red-500/70 bg-red-950/20'
                     : 'border-slate-800 bg-slate-950/40'
-                } ${field.type === 'evaluative' ? 'md:col-span-2 xl:col-span-3' : ''}`}
+                } ${
+                  field.type === 'evaluative' ||
+                  field.type === 'photo' ||
+                  field.type === 'signature'
+                    ? 'md:col-span-2 xl:col-span-3'
+                    : ''
+                }`}
               >
                 <Label className="text-xs text-slate-300">
                   {field.label || 'Campo sem rótulo'}

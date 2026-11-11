@@ -34,8 +34,39 @@ import {
   XCircle,
 } from 'lucide-react'
 import { RegistryInput } from '@/components/forms/RegistryInput'
+import {
+  GpsInput,
+  MasterDataInput,
+  PhotoInput,
+  SignatureInput,
+} from '@/components/forms/EvidenceInputs'
 
-export type PreviewValues = Record<string, string | string[] | number | null>
+/** Valor do campo gps no JSON de respostas (coordenadas reais do dispositivo). */
+export interface GpsValue {
+  latitude: number
+  longitude: number
+  accuracy: number
+  capturedAt: string
+}
+
+/** Valor do campo photo no JSON de respostas (metadata do arquivo local). */
+export interface PhotoValue {
+  fileName: string
+  size: number
+  mimeType: string
+  /** Object URL da miniatura local — usado apenas na sessão de preenchimento. */
+  _localUrl?: string
+}
+
+/** Valor do campo signature no JSON de respostas. */
+export interface SignatureValue {
+  strokes: number
+  signedAt: string
+}
+
+export type EvidenceValue = GpsValue | PhotoValue | SignatureValue
+
+export type PreviewValues = Record<string, string | string[] | number | null | EvidenceValue>
 
 const smileyOptions: { value: number; label: string; icon: typeof Frown; className: string }[] = [
   { value: 1, label: 'Muito Insatisfeito', icon: Frown, className: 'text-red-400' },
@@ -374,6 +405,18 @@ export function PreviewInput({
         </div>
       )
     }
+
+    case 'master_data':
+      return <MasterDataInput field={field} value={value} invalid={invalid} onValue={onValue} />
+
+    case 'gps':
+      return <GpsInput value={value} invalid={invalid} onValue={onValue} />
+
+    case 'photo':
+      return <PhotoInput value={value} invalid={invalid} onValue={onValue} />
+
+    case 'signature':
+      return <SignatureInput value={value} invalid={invalid} onValue={onValue} />
 
     default:
       return null

@@ -34,6 +34,7 @@ import {
   ClipboardCheck,
   ChevronDown,
   ChevronUp,
+  Database,
   Eye,
   FileText,
   Gauge,
@@ -41,6 +42,9 @@ import {
   GripVertical,
   LayoutTemplate,
   Lock,
+  MapPin,
+  Camera,
+  PenTool,
   Plus,
   Settings2,
   Trash2,
@@ -56,6 +60,7 @@ import {
   EVALUATIVE_SCALES,
   FIELD_COMPLEMENTS,
   FIELD_TYPE_LABELS,
+  MASTER_DATA_ENTITIES,
   NUMBER_PATTERNS,
   REGISTRY_MASKS,
   UNIT_CATEGORIES,
@@ -63,6 +68,7 @@ import {
   type EvaluativeScale,
   type FieldComplement,
   type FieldType,
+  type MasterDataEntity,
   type TemplateBlock,
   type TemplateField,
   type TemplateRecord,
@@ -96,6 +102,7 @@ const newField = (type: FieldType, index: number): TemplateField => {
   if (type === 'registry') base.registry_mask = 'email'
   if (type === 'evaluative') base.evaluative_scale = 'smiley'
   if (type === 'calculation') base.formula = []
+  if (type === 'master_data') base.entity = 'transportadora'
   base.alwaysVisible = true
   return base
 }
@@ -109,6 +116,10 @@ const TOOLBOX_ITEMS: { type: FieldType; icon: React.ReactNode }[] = [
   { type: 'registry', icon: <Barcode className="h-4 w-4" /> },
   { type: 'evaluative', icon: <ClipboardCheck className="h-4 w-4" /> },
   { type: 'calculation', icon: <Calculator className="h-4 w-4" /> },
+  { type: 'master_data', icon: <Database className="h-4 w-4" /> },
+  { type: 'gps', icon: <MapPin className="h-4 w-4" /> },
+  { type: 'photo', icon: <Camera className="h-4 w-4" /> },
+  { type: 'signature', icon: <PenTool className="h-4 w-4" /> },
 ]
 
 export interface BuilderSubmitPayload {
@@ -725,6 +736,7 @@ export function FormBuilder({
                             if (type === 'evaluative' && !f.evaluative_scale)
                               f.evaluative_scale = 'smiley'
                             if (type === 'calculation' && !f.formula) f.formula = []
+                            if (type === 'master_data' && !f.entity) f.entity = 'transportadora'
                           })
                         }
                       >
@@ -755,6 +767,53 @@ export function FormBuilder({
                       Campo Obrigatório
                     </Label>
                   </div>
+                  {isEvidenceType(selectedField.type) && (
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="prop-justification"
+                        checked={!!selectedField.requiresJustification}
+                        onCheckedChange={(v) =>
+                          updateField(selectedBlock!.id, selectedField.id, (f) => {
+                            f.requiresJustification = v
+                          })
+                        }
+                      />
+                      <Label htmlFor="prop-justification" className="cursor-pointer font-normal">
+                        Exige justificativa em caso de reprovação
+                      </Label>
+                    </div>
+                  )}
+                  {selectedField.type === 'master_data' && (
+                    <div className="space-y-1">
+                      <Label htmlFor="prop-master-entity">Cadastro Mestre</Label>
+                      <Select
+                        value={selectedField.entity ?? 'transportadora'}
+                        onValueChange={(v) =>
+                          updateField(selectedBlock!.id, selectedField.id, (f) => {
+                            f.entity = v as TemplateField['entity']
+                          })
+                        }
+                      >
+                        <SelectTrigger id="prop-master-entity" className="w-full bg-slate-950">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
+                          {MASTER_DATA_ENTITIES.map((e) => (
+                            <SelectItem key={e.value} value={e.value}>
+                              {e.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-500">
+                        No preenchimento, o operador escolherá um registro ativo de{' '}
+                        <strong className="font-medium text-slate-400">
+                          {MASTER_ENTITY_LABELS[selectedField.entity ?? 'transportadora']}
+                        </strong>{' '}
+                        — opções carregadas do cadastro mestre no momento da execução.
+                      </p>
+                    </div>
+                  )}
                   <div className="space-y-1">
                     <Label htmlFor="prop-instructions">Instruções</Label>
                     <Textarea
@@ -1182,6 +1241,16 @@ function EvaluativeProperties({ field, onChange }: SubProps) {
     </div>
   )
 }
+
+/** Tipos de evidência de campo (usam o switch de justificativa). */
+const isEvidenceType = (type: FieldType) =>
+  type === 'master_data' || type === 'gps' || type === 'photo' || type === 'signature'
+
+/** Rótulos das entidades de cadastros mestres. */
+const MASTER_ENTITY_LABELS: Record<MasterDataEntity, string> = MASTER_DATA_ENTITIES.reduce(
+  (acc, e) => ({ ...acc, [e.value]: e.label }),
+  {} as Record<MasterDataEntity, string>,
+)
 
 /** Seção "Selecione os complementos desejados" — presente em todos os tipos. */
 function ComplementsSection({

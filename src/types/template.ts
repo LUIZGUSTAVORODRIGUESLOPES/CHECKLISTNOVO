@@ -7,6 +7,10 @@ export type FieldType =
   | 'registry'
   | 'evaluative'
   | 'calculation'
+  | 'master_data'
+  | 'gps'
+  | 'photo'
+  | 'signature'
 
 /** Complementos gerais disponíveis para qualquer tipo de campo. */
 export type FieldComplement = 'comment' | 'action_plan' | 'action' | 'attachment'
@@ -172,6 +176,13 @@ export interface TemplateField {
    * condição ser atendida). Padrão/ausente = true (sempre visível).
    */
   alwaysVisible?: boolean
+  /** Entidade dos cadastros mestres (campo master_data). */
+  entity?: MasterDataEntity
+  /**
+   * Exige justificativa em caso de reprovação (campos de evidência:
+   * master_data, gps, photo, signature).
+   */
+  requiresJustification?: boolean
 }
 
 /** Termo da fórmula do campo calculation. */
@@ -259,7 +270,23 @@ export const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   registry: 'Cadastro (registry)',
   evaluative: 'Avaliativo (evaluative)',
   calculation: 'Calculadora / Fórmula',
+  master_data: 'Seleção de Cadastro',
+  gps: 'Localização GPS',
+  photo: 'Foto / Câmera',
+  signature: 'Assinatura',
 }
+
+/**
+ * Entidades de cadastros mestres disponíveis para o campo master_data.
+ * Lista extensível: adicionar aqui reflete em Toolbox, painel e Preview.
+ */
+export type MasterDataEntity = 'transportadora' | 'veiculo' | 'doca'
+
+export const MASTER_DATA_ENTITIES: { value: MasterDataEntity; label: string }[] = [
+  { value: 'transportadora', label: 'Transportadora' },
+  { value: 'veiculo', label: 'Veículo' },
+  { value: 'doca', label: 'Doca' },
+]
 
 /** True quando o campo tem lista de opções editável (select/multiselect). */
 export const isChoiceType = (type: FieldType) => type === 'select' || type === 'multiselect'
