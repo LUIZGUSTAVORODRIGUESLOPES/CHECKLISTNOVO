@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import type { CSSProperties } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -20,6 +19,8 @@ import {
   type InvalidRegistryEntry,
 } from '@/lib/formValidation'
 import { toast } from '@/hooks/use-toast'
+import { useFormCalculations, useFormVisibility } from '@/hooks/use-form-engine'
+import type { CalculationResult } from '@/lib/calculation'
 
 export interface PreviewHeaderInfo {
   name: string
@@ -90,6 +91,14 @@ export function TemplatePreview({ open, onOpenChange, header, blocks }: Template
     0,
   )
 
+  // Motor de gatilhos: visibilidade por chave (blockId:fieldId), recalculada
+  // em tempo real a cada digitação. Templates antigos sem triggers: tudo visível.
+  const visibility = useFormVisibility(blocks, values)
+
+  // Resultados de cálculo dos campos calculation (memoizados, recalculam a
+  // cada digitação — o campo é read-only e mostra o valor instantaneamente).
+  const calcResults = useFormCalculations(blocks, values)
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden bg-slate-950 text-slate-200 sm:max-w-5xl">
@@ -155,6 +164,8 @@ export function TemplatePreview({ open, onOpenChange, header, blocks }: Template
                 values={values}
                 onValue={setValue}
                 invalidKeys={invalidKeys}
+                visibility={visibility}
+                calcResults={calcResults}
               />
             ))
           )}
@@ -178,14 +189,23 @@ function PreviewBlock({
   values,
   onValue,
   invalidKeys,
+  visibility,
+  calcResults,
 }: {
   block: TemplateBlock
   values: PreviewValues
   onValue: (key: string, value: PreviewValues[string]) => void
   /** Chaves (blockId:fieldId) com erro após a checagem de submissão. */
   invalidKeys: Map<string, string>
+  /** Visibilidade por chave (blockId:fieldId) — motor de gatilhos. */
+  visibility: Record<string, boolean>
+  /** Resultado do cálculo por fieldId (campos calculation). */
+  calcResults: Map<string, CalculationResult>
 }) {
-  const activeFields = block.fields.filter((f) => !f.archived)
+  // Campos ativos E visíveis conforme os gatilhos (motor de lógica reativa).
+  const activeFields = block.fields.filter(
+    (f) => !f.archived && visibility[`${block.id}:${f.id}`] !== false,
+  )
   if (activeFields.length === 0) return null
   const key = (fieldId: string) => `${block.id}:${fieldId}`
   const unitLabel = (unit: string | undefined) =>
@@ -203,9 +223,10 @@ function PreviewBlock({
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {activeFields.map((field) => {
             const fieldKey = key(field.id)
-            const value = values[fieldKey] ?? null
             const fieldUnit = field.type === 'number' ? unitLabel(field.unit) : undefined
             const errorMessage = invalidKeys.get(fieldKey)
+            // Campo calculation: read-only, recalculado em tempo real pelo motor.
+            const calc = field.type === 'calculation' ? calcResults.get(field.id) : undefined
             return (
               <div
                 key={field.id}
@@ -222,13 +243,28 @@ function PreviewBlock({
                 {field.instructions ? (
                   <p className="text-[11px] text-slate-500">{field.instructions}</p>
                 ) : null}
-                <PreviewInput
-                  field={field}
-                  value={value}
-                  fieldUnit={fieldUnit}
-                  invalid={!!errorMessage}
-                  onValue={(v) => onValue(fieldKey, v)}
-                />
+                {field.type === 'calculation' ? (
+                  <div className="space-y-1">
+                    <div
+                      className={`flex h-9 items-center rounded-md border border-slate-700 bg-slate-900/70 px-3 text-sm font-medium ${
+                        calc && calc.state === 'ok' ? 'text-emerald-300' : 'text-slate-400'
+                      }`}
+                    >
+                      {calc?.display ?? '--'}
+                    </div>
+                    {calc && calc.message && (
+                      <p className="text-[11px] text-amber-400/90">{calc.message}</p>
+                    )}
+                  </div>
+                ) : (
+                  <PreviewInput
+                    field={field}
+                    value={values[fieldKey] ?? null}
+                    fieldUnit={fieldUnit}
+                    invalid={!!errorMessage}
+                    onValue={(v) => onValue(fieldKey, v)}
+                  />
+                )}
                 {errorMessage && (
                   <p className="text-[11px] font-medium text-red-400">{errorMessage}</p>
                 )}

@@ -37,6 +37,7 @@ import {
   Eye,
   FileText,
   Gauge,
+  Calculator,
   GripVertical,
   LayoutTemplate,
   Lock,
@@ -46,6 +47,8 @@ import {
 } from 'lucide-react'
 import { FieldOptionsEditor } from '@/components/forms/FieldOptionsEditor'
 import { TemplatePreview } from '@/components/forms/TemplatePreview'
+import { CalculationEditor } from '@/components/forms/CalculationEditor'
+import { FieldLogicEditor } from '@/components/forms/FieldLogicEditor'
 import type { DepartmentRecord } from '@/types/department'
 import type { SubjectRecord } from '@/types/subject'
 import {
@@ -92,6 +95,8 @@ const newField = (type: FieldType, index: number): TemplateField => {
   if (type === 'number') base.number_pattern = 'quantity'
   if (type === 'registry') base.registry_mask = 'email'
   if (type === 'evaluative') base.evaluative_scale = 'smiley'
+  if (type === 'calculation') base.formula = []
+  base.alwaysVisible = true
   return base
 }
 
@@ -103,6 +108,7 @@ const TOOLBOX_ITEMS: { type: FieldType; icon: React.ReactNode }[] = [
   { type: 'multiselect', icon: <ChevronUp className="h-4 w-4" /> },
   { type: 'registry', icon: <Barcode className="h-4 w-4" /> },
   { type: 'evaluative', icon: <ClipboardCheck className="h-4 w-4" /> },
+  { type: 'calculation', icon: <Calculator className="h-4 w-4" /> },
 ]
 
 export interface BuilderSubmitPayload {
@@ -708,6 +714,7 @@ export function FormBuilder({
                             if (type === 'registry' && !f.registry_mask) f.registry_mask = 'email'
                             if (type === 'evaluative' && !f.evaluative_scale)
                               f.evaluative_scale = 'smiley'
+                            if (type === 'calculation' && !f.formula) f.formula = []
                           })
                         }
                       >
@@ -827,6 +834,26 @@ export function FormBuilder({
                       }
                     />
                   )}
+
+                  {selectedField.type === 'calculation' && (
+                    <CalculationEditor
+                      field={selectedField}
+                      blocks={blocks}
+                      selfFieldId={selectedField.id}
+                      onChange={(fn) =>
+                        updateField(selectedBlock!.id, selectedField.id, (f) => fn(f))
+                      }
+                    />
+                  )}
+
+                  <FieldLogicEditor
+                    field={selectedField}
+                    blocks={blocks}
+                    selfFieldId={selectedField.id}
+                    onChange={(fn) =>
+                      updateField(selectedBlock!.id, selectedField.id, (f) => fn(f))
+                    }
+                  />
 
                   {isChoiceType(selectedField.type) && (
                     <FieldOptionsEditor

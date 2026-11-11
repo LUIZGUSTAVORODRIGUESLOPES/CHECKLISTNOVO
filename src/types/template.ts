@@ -6,6 +6,7 @@ export type FieldType =
   | 'multiselect'
   | 'registry'
   | 'evaluative'
+  | 'calculation'
 
 /** Complementos gerais disponíveis para qualquer tipo de campo. */
 export type FieldComplement = 'comment' | 'action_plan' | 'action' | 'attachment'
@@ -156,6 +157,63 @@ export interface TemplateField {
   complements?: FieldComplement[]
   /** true quando o campo foi arquivado em modo de edição segura. */
   archived?: boolean
+  /**
+   * Fórmula do campo calculation: sequência de termos (campo numérico de
+   * origem ou operador). Ausente/vazia = campo sem fórmula (mostra '--').
+   */
+  formula?: FormulaTerm[]
+  /**
+   * Gatilhos de visibilidade (motor de lógica reativa). Todas as regras
+   * devem ser verdadeiras (AND) para o campo aparecer. Ausente = sempre visível.
+   */
+  triggers?: LogicRule[]
+  /**
+   * false quando o campo tem regras de visibilidade (fica oculto até a
+   * condição ser atendida). Padrão/ausente = true (sempre visível).
+   */
+  alwaysVisible?: boolean
+}
+
+/** Termo da fórmula do campo calculation. */
+export interface FormulaTerm {
+  /** 'field' = valor numérico de um campo de origem; 'op' = operador. */
+  kind: 'field' | 'op'
+  /** Id do campo de origem (quando kind = 'field'). */
+  fieldId?: string
+  /** Operador (quando kind = 'op'): + - * /. */
+  op?: CalcOperator
+}
+
+export type CalcOperator = '+' | '-' | '*' | '/'
+
+export const CALC_OPERATORS: { value: CalcOperator; label: string }[] = [
+  { value: '+', label: 'Soma (+)' },
+  { value: '-', label: 'Subtração (−)' },
+  { value: '*', label: 'Multiplicação (×)' },
+  { value: '/', label: 'Divisão (÷)' },
+]
+
+/** Operadores de comparação das regras de visibilidade. */
+export type LogicOperator = '==' | '!=' | '>' | '<' | '>=' | '<=' | 'contains'
+
+export const LOGIC_OPERATORS: { value: LogicOperator; label: string }[] = [
+  { value: '==', label: 'Igual (==)' },
+  { value: '!=', label: 'Diferente (!=)' },
+  { value: '>', label: 'Maior que (>)' },
+  { value: '<', label: 'Menor que (<)' },
+  { value: '>=', label: 'Maior ou igual (>=)' },
+  { value: '<=', label: 'Menor ou igual (<=)' },
+  { value: 'contains', label: 'Contém (contains)' },
+]
+
+/** Uma regra de visibilidade: origem + operador + valor de comparação. */
+export interface LogicRule {
+  id: string
+  /** Id do campo de origem da comparação (qualquer campo do template). */
+  sourceFieldId: string
+  operator: LogicOperator
+  /** Valor de comparação digitado pelo construtor (texto; interpretado por tipo). */
+  value: string
 }
 
 export interface TemplateBlock {
@@ -200,6 +258,7 @@ export const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   multiselect: 'Múltipla Escolha - Dropdown',
   registry: 'Cadastro (registry)',
   evaluative: 'Avaliativo (evaluative)',
+  calculation: 'Calculadora / Fórmula',
 }
 
 /** True quando o campo tem lista de opções editável (select/multiselect). */
