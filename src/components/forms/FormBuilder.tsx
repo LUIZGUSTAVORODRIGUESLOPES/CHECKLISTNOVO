@@ -133,8 +133,16 @@ interface FormBuilderProps {
 }
 
 /**
- * Construtor de formulários em 3 colunas (cabeçalho / toolbox / blocos)
- * com painel de propriedades e modo de edição segura baseado em respostas.
+ * Construtor de formulários com painel de propriedades lateral (direita)
+ * e modo de edição segura baseado em respostas.
+ *
+ * Layout responsivo:
+ * - lg+ (1024px): propriedades fixas na lateral direita, ao lado da área de
+ *   blocos; cabeçalho e toolbox ficam compactos acima dos blocos.
+ * - xl+ (1280px): toolbox volta para a coluna esquerda (toolbox | blocos |
+ *   propriedades).
+ * - O painel de propriedades tem rolagem interna própria, para nunca empurrar
+ *   as seções (fórmula, gatilhos, opções) para fora da tela.
  */
 export function FormBuilder({
   departments,
@@ -304,7 +312,7 @@ export function FormBuilder({
   const activeSubjects = subjects.filter((s) => s.active || s.id === subjectId)
 
   return (
-    <div className="flex-1 space-y-6 p-6 lg:p-10 bg-slate-950 min-h-screen">
+    <div className="flex-1 space-y-6 p-4 sm:p-6 bg-slate-950 min-h-screen">
       {/* Cabeçalho da tela do construtor */}
       <div className="flex flex-col gap-2 border-b border-slate-800 pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -351,108 +359,110 @@ export function FormBuilder({
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[300px_minmax(0,1fr)_320px]">
-        {/* ============ Coluna 1: Cabeçalho + Toolbox ============ */}
-        <div className="space-y-4">
-          <Card className="border-slate-800 bg-slate-900/50 text-slate-200">
-            <CardContent className="space-y-4 p-4">
-              <div className="text-sm font-semibold text-white">Cabeçalho do Formulário</div>
-              <div className="space-y-1">
-                <Label htmlFor="tpl-name">Nome do Formulário *</Label>
-                <Input
-                  id="tpl-name"
-                  value={name}
-                  onFocus={selectAuto}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Ex.: Checklist de Recebimento"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="tpl-description">Descrição</Label>
-                <Textarea
-                  id="tpl-description"
-                  value={description}
-                  onFocus={selectAuto}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Descreva o objetivo do formulário"
-                  rows={3}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label>Departamento</Label>
-                <Select
-                  value={departmentId || 'none'}
-                  onValueChange={(v) => setDepartmentId(v === 'none' ? '' : v)}
-                >
-                  <SelectTrigger className="w-full bg-slate-950">
-                    <SelectValue placeholder="Selecione (opcional)" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
-                    <SelectItem value="none">Sem departamento</SelectItem>
-                    {departments.map((d) => (
-                      <SelectItem key={d.id} value={d.id}>
-                        {d.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label>Assunto</Label>
-                <Select
-                  value={subjectId || undefined}
-                  onValueChange={(v) => setSubjectId(v === 'none' ? '' : v)}
-                >
-                  <SelectTrigger className="w-full bg-slate-950">
-                    <SelectValue placeholder="Selecione (opcional)" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
-                    <SelectItem value="none">Sem assunto</SelectItem>
-                    {activeSubjects.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-center gap-2">
-                <Switch id="tpl-active" checked={active} onCheckedChange={setActive} />
-                <Label htmlFor="tpl-active">Formulário Ativo</Label>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-slate-800 bg-slate-900/50 text-slate-200">
-            <CardContent className="space-y-2 p-4">
-              <div className="text-sm font-semibold text-white">Caixa de Ferramentas</div>
-              <Button
-                variant="outline"
-                onClick={handleAddBlock}
-                className="w-full justify-start gap-2 border-blue-900/60 bg-blue-950/30 text-blue-200 hover:bg-blue-950/60"
+      {/* Área de trabalho (esquerda) + painel de propriedades (direita) */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start lg:gap-6 xl:grid-cols-[280px_minmax(0,1fr)_320px]">
+        <Card className="min-w-0 border-slate-800 bg-slate-900/50 text-slate-200 lg:col-start-1 lg:row-start-1">
+          <CardContent className="space-y-4 p-4 sm:grid sm:grid-cols-2 sm:gap-3 sm:space-y-0 xl:block xl:space-y-4">
+            <div className="text-sm font-semibold text-white sm:col-span-2">
+              Cabeçalho do Formulário
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="tpl-name">Nome do Formulário *</Label>
+              <Input
+                id="tpl-name"
+                value={name}
+                onFocus={selectAuto}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Ex.: Checklist de Recebimento"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="tpl-description">Descrição</Label>
+              <Textarea
+                id="tpl-description"
+                value={description}
+                onFocus={selectAuto}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Descreva o objetivo do formulário"
+                rows={3}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Departamento</Label>
+              <Select
+                value={departmentId || 'none'}
+                onValueChange={(v) => setDepartmentId(v === 'none' ? '' : v)}
               >
-                <Plus className="h-4 w-4" /> Adicionar Bloco
-              </Button>
-              <div className="pt-1 text-xs font-medium uppercase tracking-wider text-slate-400">
-                Tipos de Campo
-              </div>
-              {TOOLBOX_ITEMS.map((item) => (
-                <Button
-                  key={item.type}
-                  variant="outline"
-                  onClick={() => handleAddField(item.type)}
-                  className="w-full justify-start gap-2 border-slate-700 bg-slate-950/60 text-slate-200 hover:bg-slate-800"
-                >
-                  {item.icon}
-                  {FIELD_TYPE_LABELS[item.type]}
-                </Button>
-              ))}
-            </CardContent>
-          </Card>
-        </div>
+                <SelectTrigger className="w-full bg-slate-950">
+                  <SelectValue placeholder="Selecione (opcional)" />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
+                  <SelectItem value="none">Sem departamento</SelectItem>
+                  {departments.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Assunto</Label>
+              <Select
+                value={subjectId || undefined}
+                onValueChange={(v) => setSubjectId(v === 'none' ? '' : v)}
+              >
+                <SelectTrigger className="w-full bg-slate-950">
+                  <SelectValue placeholder="Selecione (opcional)" />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
+                  <SelectItem value="none">Sem assunto</SelectItem>
+                  {activeSubjects.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch id="tpl-active" checked={active} onCheckedChange={setActive} />
+              <Label htmlFor="tpl-active">Formulário Ativo</Label>
+            </div>
+          </CardContent>
+        </Card>
 
-        {/* ============ Coluna 2: blocos com campos ============ */}
-        <div className="space-y-4">
+        <Card className="min-w-0 border-slate-800 bg-slate-900/50 text-slate-200 lg:col-start-1 lg:row-start-2">
+          <CardContent className="space-y-2 p-4 sm:grid sm:grid-cols-2 sm:gap-2 sm:space-y-0 lg:grid-cols-3 xl:block xl:space-y-2">
+            <div className="text-sm font-semibold text-white sm:col-span-2 lg:col-span-3">
+              Caixa de Ferramentas
+            </div>
+            <Button
+              variant="outline"
+              onClick={handleAddBlock}
+              className="w-full justify-start gap-2 border-blue-900/60 bg-blue-950/30 text-blue-200 hover:bg-blue-950/60 sm:col-span-2 lg:col-span-3"
+            >
+              <Plus className="h-4 w-4" /> Adicionar Bloco
+            </Button>
+            <div className="pt-1 text-xs font-medium uppercase tracking-wider text-slate-400 sm:col-span-2 lg:col-span-3">
+              Tipos de Campo
+            </div>
+            {TOOLBOX_ITEMS.map((item) => (
+              <Button
+                key={item.type}
+                variant="outline"
+                onClick={() => handleAddField(item.type)}
+                className="w-full justify-start gap-2 border-slate-700 bg-slate-950/60 text-slate-200 hover:bg-slate-800"
+              >
+                {item.icon}
+                {FIELD_TYPE_LABELS[item.type]}
+              </Button>
+            ))}
+          </CardContent>
+        </Card>
+
+        {/* ============ Blocos com campos ============ */}
+        <div className="min-w-0 space-y-4 lg:col-start-1 lg:row-start-3 xl:col-start-2 xl:row-start-1">
           {blocks.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-800 bg-slate-900/30 p-10 text-center text-slate-400">
               <LayoutTemplate className="mb-3 h-10 w-10" />
@@ -568,7 +578,7 @@ export function FormBuilder({
                                 : 'border-slate-800 bg-slate-950/50 hover:border-slate-700'
                             } ${field.archived ? 'opacity-50' : ''}`}
                           >
-                            <span className="w-24 shrink-0 truncate text-xs text-slate-400">
+                            <span className="hidden w-24 shrink-0 truncate text-xs text-slate-400 xl:block">
                               {FIELD_TYPE_LABELS[field.type]}
                             </span>
                             <Input
@@ -662,9 +672,9 @@ export function FormBuilder({
           )}
         </div>
 
-        {/* ============ Coluna 3: painel de propriedades ============ */}
-        <div>
-          <Card className="sticky top-6 border-slate-800 bg-slate-900/50 text-slate-200">
+        {/* ============ Painel de propriedades (lateral direita, fixo) ============ */}
+        <div className="min-w-0 self-start lg:col-start-2 lg:row-span-3 lg:row-start-1 xl:col-start-3 xl:row-start-1">
+          <Card className="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto border-slate-800 bg-slate-900/50 text-slate-200">
             <CardContent className="space-y-4 p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-white">
                 <Settings2 className="h-4 w-4" /> Propriedades
