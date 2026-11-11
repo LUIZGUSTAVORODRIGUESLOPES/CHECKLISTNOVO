@@ -34,6 +34,7 @@ import {
   ClipboardCheck,
   ChevronDown,
   ChevronUp,
+  Eye,
   FileText,
   Gauge,
   GripVertical,
@@ -44,6 +45,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { FieldOptionsEditor } from '@/components/forms/FieldOptionsEditor'
+import { TemplatePreview } from '@/components/forms/TemplatePreview'
 import type { DepartmentRecord } from '@/types/department'
 import type { SubjectRecord } from '@/types/subject'
 import {
@@ -148,6 +150,7 @@ export function FormBuilder({
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null)
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null)
   const [confirmDeleteField, setConfirmDeleteField] = useState<TemplateField | null>(null)
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
   const confirmDeleteContextRef = useRef<{ blockId: string } | null>(null)
 
   const hasResponses = (responsesCount ?? 0) > 0
@@ -311,6 +314,14 @@ export function FormBuilder({
         <div className="flex gap-2">
           <Button variant="outline" onClick={onCancel} disabled={isSaving}>
             Cancelar
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => setIsPreviewOpen(true)}
+            className="gap-2"
+          >
+            <Eye className="h-4 w-4" /> Visualizar
           </Button>
           <Button onClick={handleSubmit} disabled={isSaving || !name.trim()}>
             {isSaving ? 'Salvando…' : 'Salvar Formulário'}
@@ -876,6 +887,19 @@ export function FormBuilder({
           </Card>
         </div>
       </div>
+
+      {/* Diálogo amplo de pré-visualização (Preview) */}
+      <TemplatePreview
+        open={isPreviewOpen}
+        onOpenChange={setIsPreviewOpen}
+        header={{
+          name: name.trim(),
+          description: description.trim(),
+          departmentName: departments.find((d) => d.id === departmentId)?.name ?? '',
+          subjectName: subjects.find((s) => s.id === subjectId)?.name ?? '',
+        }}
+        blocks={blocks}
+      />
 
       {/* Confirmação de exclusão de campo (modo livre) */}
       <AlertDialog
