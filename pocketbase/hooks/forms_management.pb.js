@@ -479,6 +479,8 @@ routerAdd(
       if (!Array.isArray(blocks)) {
         throw new BadRequestError('Estrutura de blocos inválida: esperado um array de blocos.')
       }
+      // O array pode conter blocos e as chaves de configuración extras
+      // (assignments / pdfDesign) — gravadas juntas no JSON blocks.
       template.set('blocks', JSON.stringify(blocks))
     }
 

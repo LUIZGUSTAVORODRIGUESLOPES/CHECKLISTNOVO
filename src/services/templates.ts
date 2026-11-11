@@ -1,6 +1,6 @@
 import pb from '@/lib/pocketbase/client'
 import { ClientResponseError } from 'pocketbase'
-import type { TemplateRecord, TemplatePayload } from '@/types/template'
+import type { TemplateRecord, TemplatePayload, TemplatePayloadWithConfig } from '@/types/template'
 
 /**
  * Lista os templates com contagem de respostas via rota server-side
@@ -59,7 +59,9 @@ export async function getResponsesCount(templateId: string): Promise<number | nu
 }
 
 /** Cria um template; o backend grava created_by com o perfil do admin logado. */
-export async function createTemplate(payload: TemplatePayload): Promise<string> {
+export async function createTemplate(
+  payload: TemplatePayload | TemplatePayloadWithConfig,
+): Promise<string> {
   const res = await pb.send<{ id: string }>('/backend/v1/globex/templates', {
     method: 'POST',
     body: {
@@ -72,7 +74,10 @@ export async function createTemplate(payload: TemplatePayload): Promise<string> 
 }
 
 /** Atualiza um template existente via rota server-side PATCH. */
-export async function updateTemplate(id: string, payload: TemplatePayload): Promise<number | null> {
+export async function updateTemplate(
+  id: string,
+  payload: TemplatePayload | TemplatePayloadWithConfig,
+): Promise<number | null> {
   const res = await pb.send<{ responses_count: number | null }>(
     `/backend/v1/globex/templates/${id}`,
     {

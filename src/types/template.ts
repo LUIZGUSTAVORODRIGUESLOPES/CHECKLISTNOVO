@@ -261,6 +261,14 @@ export interface TemplatePayload {
   active: boolean
 }
 
+/**
+ * Payload aceito pelo backend: o JSON blocks pode carregar, além dos blocos,
+ * as chaves de configuração assignments / pdfDesign (sem colunas novas).
+ */
+export type TemplatePayloadWithConfig = Omit<TemplatePayload, 'blocks'> & {
+  blocks: Array<TemplateBlock | TemplateConfigExtras>
+}
+
 export const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   text: 'Texto Curto',
   number: 'Número',
@@ -290,6 +298,15 @@ export const MASTER_DATA_ENTITIES: { value: MasterDataEntity; label: string }[] 
 
 /** True quando o campo tem lista de opções editável (select/multiselect). */
 export const isChoiceType = (type: FieldType) => type === 'select' || type === 'multiselect'
+
+/**
+ * Chave extra dentro do JSON blocks (não é um bloco de campos): carrega as
+ * configurações de Atribuições e Design do PDF do template (sem colunas novas).
+ */
+export interface TemplateConfigExtras {
+  assignments: unknown
+  pdfDesign: unknown
+}
 
 /** Normaliza uma opção (string antiga ou objeto) para FieldOption. */
 export function normalizeOption(opt: string | FieldOption): FieldOption {

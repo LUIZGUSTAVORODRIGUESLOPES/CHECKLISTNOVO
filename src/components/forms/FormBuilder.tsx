@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,11 +49,23 @@ import {
   Plus,
   Settings2,
   Trash2,
+  Users,
+  Palette,
 } from 'lucide-react'
 import { FieldOptionsEditor } from '@/components/forms/FieldOptionsEditor'
 import { TemplatePreview } from '@/components/forms/TemplatePreview'
 import { CalculationEditor } from '@/components/forms/CalculationEditor'
 import { FieldLogicEditor } from '@/components/forms/FieldLogicEditor'
+import { AssignmentsTab } from '@/components/forms/AssignmentsTab'
+import { PdfDesignTab } from '@/components/forms/PdfDesignTab'
+import {
+  DEFAULT_ASSIGNMENTS,
+  DEFAULT_PDF_DESIGN,
+  buildBlocksPayload,
+  extractTemplateExtras,
+  type TemplateAssignments,
+  type TemplatePdfDesign,
+} from '@/lib/templateConfig'
 import type { DepartmentRecord } from '@/types/department'
 import type { SubjectRecord } from '@/types/subject'
 import {
@@ -107,6 +120,10 @@ const newField = (type: FieldType, index: number): TemplateField => {
   return base
 }
 
+/** True quando o item do JSON blocks é um bloco legítimo (tem fields). */
+const isBlockItem = (item: unknown): item is TemplateBlock =>
+  typeof item === 'object' && item !== null && Array.isArray((item as { fields?: unknown }).fields)
+
 const TOOLBOX_ITEMS: { type: FieldType; icon: React.ReactNode }[] = [
   { type: 'text', icon: <FileText className="h-4 w-4" /> },
   { type: 'number', icon: <Gauge className="h-4 w-4" /> },
@@ -128,6 +145,10 @@ export interface BuilderSubmitPayload {
   department_id: string
   subject_id: string
   blocks: TemplateBlock[]
+  /** Atribuições (todos os operadores × departamentos) — vai no JSON blocks. */
+  assignments: TemplateAssignments
+  /** Design do relatório PDF — vai no JSON blocks. */
+  pdfDesign: TemplatePdfDesign
   active: boolean
 }
 
@@ -170,7 +191,18 @@ export function FormBuilder({
   const [subjectId, setSubjectId] = useState(template?.subject_id ?? '')
   const [active, setActive] = useState(template ? template.active : true)
   const [blocks, setBlocks] = useState<TemplateBlock[]>(
-    template ? template.blocks.map((b) => ({ ...b, fields: b.fields.map((f) => ({ ...f })) })) : [],
+    template
+      ? template.blocks
+          .filter(isBlockItem)
+          .map((b) => ({ ...b, fields: b.fields.map((f) => ({ ...f })) }))
+      : [],
+  )
+  const savedExtras = useMemo(() => extractTemplateExtras(template?.blocks), [template])
+  const [assignments, setAssignments] = useState<TemplateAssignments>(
+    savedExtras.assignments ?? DEFAULT_ASSIGNMENTS,
+  )
+  const [pdfDesign, setPdfDesign] = useState<TemplatePdfDesign>(
+    savedExtras.pdfDesign ?? DEFAULT_PDF_DESIGN,
   )
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null)
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null)
@@ -316,6 +348,8 @@ export function FormBuilder({
       department_id: departmentId,
       subject_id: subjectId,
       blocks,
+      assignments,
+      pdfDesign,
       active,
     })
   }
@@ -370,633 +404,684 @@ export function FormBuilder({
         </div>
       )}
 
-      {/* Área de trabalho (esquerda) + painel de propriedades (direita) */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start lg:gap-6 xl:grid-cols-[280px_minmax(0,1fr)_320px]">
-        <Card className="min-w-0 border-slate-800 bg-slate-900/50 text-slate-200 lg:col-start-1 lg:row-start-1">
-          <CardContent className="space-y-4 p-4 sm:grid sm:grid-cols-2 sm:gap-3 sm:space-y-0 xl:block xl:space-y-4">
-            <div className="text-sm font-semibold text-white sm:col-span-2">
-              Cabeçalho do Formulário
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="tpl-name">Nome do Formulário *</Label>
-              <Input
-                id="tpl-name"
-                value={name}
-                onFocus={selectAuto}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Ex.: Checklist de Recebimento"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="tpl-description">Descrição</Label>
-              <Textarea
-                id="tpl-description"
-                value={description}
-                onFocus={selectAuto}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Descreva o objetivo do formulário"
-                rows={3}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Departamento</Label>
-              <Select
-                value={departmentId || 'none'}
-                onValueChange={(v) => setDepartmentId(v === 'none' ? '' : v)}
-              >
-                <SelectTrigger className="w-full bg-slate-950">
-                  <SelectValue placeholder="Selecione (opcional)" />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
-                  <SelectItem value="none">Sem departamento</SelectItem>
-                  {departments.map((d) => (
-                    <SelectItem key={d.id} value={d.id}>
-                      {d.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label>Assunto</Label>
-              <Select
-                value={subjectId || undefined}
-                onValueChange={(v) => setSubjectId(v === 'none' ? '' : v)}
-              >
-                <SelectTrigger className="w-full bg-slate-950">
-                  <SelectValue placeholder="Selecione (opcional)" />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
-                  <SelectItem value="none">Sem assunto</SelectItem>
-                  {activeSubjects.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center gap-2">
-              <Switch id="tpl-active" checked={active} onCheckedChange={setActive} />
-              <Label htmlFor="tpl-active">Formulário Ativo</Label>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Abas de configuração: Campos | Atribuições | Design do PDF */}
+      <Tabs defaultValue="fields" className="space-y-4">
+        <TabsList className="bg-slate-900 border border-slate-800">
+          <TabsTrigger
+            value="fields"
+            className="gap-2 data-[state=active]:bg-slate-800 data-[state=active]:text-white"
+          >
+            <LayoutTemplate className="h-4 w-4" /> Campos
+          </TabsTrigger>
+          <TabsTrigger
+            value="assignments"
+            className="gap-2 data-[state=active]:bg-slate-800 data-[state=active]:text-white"
+          >
+            <Users className="h-4 w-4" /> Atribuições
+          </TabsTrigger>
+          <TabsTrigger
+            value="pdf"
+            className="gap-2 data-[state=active]:bg-slate-800 data-[state=active]:text-white"
+          >
+            <Palette className="h-4 w-4" /> Design do PDF
+          </TabsTrigger>
+        </TabsList>
 
-        <Card className="min-w-0 border-slate-800 bg-slate-900/50 text-slate-200 lg:col-start-1 lg:row-start-2">
-          <CardContent className="space-y-2 p-4 sm:grid sm:grid-cols-2 sm:gap-2 sm:space-y-0 lg:grid-cols-3 xl:block xl:space-y-2">
-            <div className="text-sm font-semibold text-white sm:col-span-2 lg:col-span-3">
-              Caixa de Ferramentas
-            </div>
-            <Button
-              variant="outline"
-              onClick={handleAddBlock}
-              className="w-full justify-start gap-2 border-blue-900/60 bg-blue-950/30 text-blue-200 hover:bg-blue-950/60 sm:col-span-2 lg:col-span-3"
-            >
-              <Plus className="h-4 w-4" /> Adicionar Bloco
-            </Button>
-            <div className="pt-1 text-xs font-medium uppercase tracking-wider text-slate-400 sm:col-span-2 lg:col-span-3">
-              Tipos de Campo
-            </div>
-            {TOOLBOX_ITEMS.map((item) => (
-              <Button
-                key={item.type}
-                variant="outline"
-                onClick={() => handleAddField(item.type)}
-                className="w-full justify-start gap-2 border-slate-700 bg-slate-950/60 text-slate-200 hover:bg-slate-800"
-              >
-                {item.icon}
-                {FIELD_TYPE_LABELS[item.type]}
-              </Button>
-            ))}
-          </CardContent>
-        </Card>
+        {/* ============ Aba Atribuições ============ */}
+        <TabsContent value="assignments">
+          <AssignmentsTab
+            assignments={assignments}
+            departments={departments}
+            onChange={setAssignments}
+          />
+        </TabsContent>
 
-        {/* ============ Blocos com campos ============ */}
-        <div className="min-w-0 space-y-4 lg:col-start-1 lg:row-start-3 xl:col-start-2 xl:row-start-1">
-          {blocks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-800 bg-slate-900/30 p-10 text-center text-slate-400">
-              <LayoutTemplate className="mb-3 h-10 w-10" />
-              <p className="text-sm">
-                Nenhum bloco ainda. Use{' '}
-                <strong className="text-slate-200">+ Adicionar Bloco</strong> ou clique em um tipo
-                de campo na Caixa de Ferramentas — o primeiro bloco é criado automaticamente.
-              </p>
-            </div>
-          ) : (
-            blocks.map((block, blockIndex) => {
-              const isBlockSelected = block.id === selectedBlockId
-              return (
-                <div
-                  key={block.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => {
-                    setSelectedBlockId(block.id)
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') setSelectedBlockId(block.id)
-                  }}
-                  className={`cursor-pointer rounded-lg border p-4 transition-colors ${
-                    isBlockSelected
-                      ? 'border-blue-500 bg-slate-900/70 shadow-[0_0_0_1px_rgba(59,130,246,0.4)]'
-                      : 'border-slate-800 bg-slate-900/40 hover:border-slate-700'
-                  }`}
+        {/* ============ Aba Design do PDF ============ */}
+        <TabsContent value="pdf">
+          <PdfDesignTab pdfDesign={pdfDesign} onChange={setPdfDesign} />
+        </TabsContent>
+
+        {/* ============ Aba Campos ============ */}
+        <TabsContent value="fields">
+          {/* Área de trabalho (esquerda) + painel de propriedades (direita) */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start lg:gap-6 xl:grid-cols-[280px_minmax(0,1fr)_320px]">
+            <Card className="min-w-0 border-slate-800 bg-slate-900/50 text-slate-200 lg:col-start-1 lg:row-start-1">
+              <CardContent className="space-y-4 p-4 sm:grid sm:grid-cols-2 sm:gap-3 sm:space-y-0 xl:block xl:space-y-4">
+                <div className="text-sm font-semibold text-white sm:col-span-2">
+                  Cabeçalho do Formulário
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="tpl-name">Nome do Formulário *</Label>
+                  <Input
+                    id="tpl-name"
+                    value={name}
+                    onFocus={selectAuto}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Ex.: Checklist de Recebimento"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="tpl-description">Descrição</Label>
+                  <Textarea
+                    id="tpl-description"
+                    value={description}
+                    onFocus={selectAuto}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Descreva o objetivo do formulário"
+                    rows={3}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Departamento</Label>
+                  <Select
+                    value={departmentId || 'none'}
+                    onValueChange={(v) => setDepartmentId(v === 'none' ? '' : v)}
+                  >
+                    <SelectTrigger className="w-full bg-slate-950">
+                      <SelectValue placeholder="Selecione (opcional)" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
+                      <SelectItem value="none">Sem departamento</SelectItem>
+                      {departments.map((d) => (
+                        <SelectItem key={d.id} value={d.id}>
+                          {d.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Assunto</Label>
+                  <Select
+                    value={subjectId || undefined}
+                    onValueChange={(v) => setSubjectId(v === 'none' ? '' : v)}
+                  >
+                    <SelectTrigger className="w-full bg-slate-950">
+                      <SelectValue placeholder="Selecione (opcional)" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
+                      <SelectItem value="none">Sem assunto</SelectItem>
+                      {activeSubjects.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch id="tpl-active" checked={active} onCheckedChange={setActive} />
+                  <Label htmlFor="tpl-active">Formulário Ativo</Label>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="min-w-0 border-slate-800 bg-slate-900/50 text-slate-200 lg:col-start-1 lg:row-start-2">
+              <CardContent className="space-y-2 p-4 sm:grid sm:grid-cols-2 sm:gap-2 sm:space-y-0 lg:grid-cols-3 xl:block xl:space-y-2">
+                <div className="text-sm font-semibold text-white sm:col-span-2 lg:col-span-3">
+                  Caixa de Ferramentas
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={handleAddBlock}
+                  className="w-full justify-start gap-2 border-blue-900/60 bg-blue-950/30 text-blue-200 hover:bg-blue-950/60 sm:col-span-2 lg:col-span-3"
                 >
-                  <div className="mb-3 flex items-center gap-2">
-                    <GripVertical className="h-4 w-4 shrink-0 text-slate-500" />
-                    <Input
-                      ref={(el) => {
-                        blockTitleRefs.current[block.id] = el
-                      }}
-                      value={block.title}
-                      onFocus={(e) => {
-                        e.target.select()
+                  <Plus className="h-4 w-4" /> Adicionar Bloco
+                </Button>
+                <div className="pt-1 text-xs font-medium uppercase tracking-wider text-slate-400 sm:col-span-2 lg:col-span-3">
+                  Tipos de Campo
+                </div>
+                {TOOLBOX_ITEMS.map((item) => (
+                  <Button
+                    key={item.type}
+                    variant="outline"
+                    onClick={() => handleAddField(item.type)}
+                    className="w-full justify-start gap-2 border-slate-700 bg-slate-950/60 text-slate-200 hover:bg-slate-800"
+                  >
+                    {item.icon}
+                    {FIELD_TYPE_LABELS[item.type]}
+                  </Button>
+                ))}
+              </CardContent>
+            </Card>
+
+            {/* ============ Blocos com campos ============ */}
+            <div className="min-w-0 space-y-4 lg:col-start-1 lg:row-start-3 xl:col-start-2 xl:row-start-1">
+              {blocks.length === 0 ? (
+                <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-800 bg-slate-900/30 p-10 text-center text-slate-400">
+                  <LayoutTemplate className="mb-3 h-10 w-10" />
+                  <p className="text-sm">
+                    Nenhum bloco ainda. Use{' '}
+                    <strong className="text-slate-200">+ Adicionar Bloco</strong> ou clique em um
+                    tipo de campo na Caixa de Ferramentas — o primeiro bloco é criado
+                    automaticamente.
+                  </p>
+                </div>
+              ) : (
+                blocks.map((block, blockIndex) => {
+                  const isBlockSelected = block.id === selectedBlockId
+                  return (
+                    <div
+                      key={block.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
                         setSelectedBlockId(block.id)
                       }}
-                      onChange={(e) => updateBlock(block.id, (b) => (b.title = e.target.value))}
-                      className="h-8 border-transparent bg-transparent px-1 text-sm font-semibold text-white hover:border-slate-700"
-                      placeholder="Título do bloco"
-                    />
-                    <Badge
-                      variant="outline"
-                      className="border-slate-700 text-[10px] text-slate-400"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') setSelectedBlockId(block.id)
+                      }}
+                      className={`cursor-pointer rounded-lg border p-4 transition-colors ${
+                        isBlockSelected
+                          ? 'border-blue-500 bg-slate-900/70 shadow-[0_0_0_1px_rgba(59,130,246,0.4)]'
+                          : 'border-slate-800 bg-slate-900/40 hover:border-slate-700'
+                      }`}
                     >
-                      {block.fields.length} campo{block.fields.length === 1 ? '' : 's'}
-                    </Badge>
-                    <div className="ml-auto flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-slate-400 hover:text-slate-100"
-                        title="Mover bloco para cima"
-                        disabled={blockIndex === 0}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleMoveBlock(block.id, -1)
-                        }}
-                      >
-                        <ArrowUp className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-slate-400 hover:text-slate-200"
-                        title="Mover bloco para baixo"
-                        disabled={blockIndex === blocks.length - 1}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleMoveBlock(block.id, 1)
-                        }}
-                      >
-                        <ArrowDown className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-red-400 hover:text-red-300 hover:bg-red-950/40"
-                        title="Excluir bloco"
-                        disabled={safeMode}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleDeleteBlock(block.id)
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-
-                  {block.fields.length === 0 ? (
-                    <p className="rounded border border-dashed border-slate-800 px-3 py-4 text-center text-xs text-slate-500">
-                      Bloco vazio — selecione-o e adicione um campo pela Caixa de Ferramentas.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {block.fields.map((field, fieldIndex) => {
-                        const isFieldSelected = isBlockSelected && field.id === selectedFieldId
-                        return (
-                          <div
-                            key={field.id}
+                      <div className="mb-3 flex items-center gap-2">
+                        <GripVertical className="h-4 w-4 shrink-0 text-slate-500" />
+                        <Input
+                          ref={(el) => {
+                            blockTitleRefs.current[block.id] = el
+                          }}
+                          value={block.title}
+                          onFocus={(e) => {
+                            e.target.select()
+                            setSelectedBlockId(block.id)
+                          }}
+                          onChange={(e) => updateBlock(block.id, (b) => (b.title = e.target.value))}
+                          className="h-8 border-transparent bg-transparent px-1 text-sm font-semibold text-white hover:border-slate-700"
+                          placeholder="Título do bloco"
+                        />
+                        <Badge
+                          variant="outline"
+                          className="border-slate-700 text-[10px] text-slate-400"
+                        >
+                          {block.fields.length} campo{block.fields.length === 1 ? '' : 's'}
+                        </Badge>
+                        <div className="ml-auto flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-slate-400 hover:text-slate-100"
+                            title="Mover bloco para cima"
+                            disabled={blockIndex === 0}
                             onClick={(e) => {
                               e.stopPropagation()
-                              setSelectedBlockId(block.id)
-                              setSelectedFieldId(field.id)
+                              handleMoveBlock(block.id, -1)
                             }}
-                            className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
-                              isFieldSelected
-                                ? 'border-blue-400 bg-blue-950/20'
-                                : 'border-slate-800 bg-slate-950/50 hover:border-slate-700'
-                            } ${field.archived ? 'opacity-50' : ''}`}
                           >
-                            <span className="hidden w-24 shrink-0 truncate text-xs text-slate-400 xl:block">
-                              {FIELD_TYPE_LABELS[field.type]}
-                            </span>
-                            <Input
-                              ref={(el) => {
-                                fieldLabelRefs.current[field.id] = el
-                              }}
-                              value={field.label}
-                              onFocus={(e) => {
-                                e.target.select()
-                                setSelectedBlockId(block.id)
-                                setSelectedFieldId(field.id)
-                              }}
-                              onChange={(e) =>
-                                updateField(block.id, field.id, (f) => (f.label = e.target.value))
-                              }
-                              className="h-7 flex-1 border-transparent bg-transparent px-1 text-sm text-slate-100 hover:border-slate-700"
-                              placeholder="Rótulo do campo"
-                            />
-                            {field.archived && (
-                              <Archive className="h-3.5 w-3.5 shrink-0 text-amber-400" />
-                            )}
-                            {field.required && !field.archived && (
-                              <span className="text-xs font-semibold text-red-400">*</span>
-                            )}
-                            <div className="ml-auto flex items-center gap-0.5">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6 text-slate-500 hover:text-slate-200"
-                                title="Mover campo para cima"
-                                disabled={fieldIndex === 0}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleMoveField(block.id, field.id, -1)
-                                }}
-                              >
-                                <ArrowUp className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6 text-slate-500 hover:text-slate-200"
-                                title="Mover campo para baixo"
-                                disabled={fieldIndex === block.fields.length - 1}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleMoveField(block.id, field.id, 1)
-                                }}
-                              >
-                                <ArrowDown className="h-3.5 w-3.5" />
-                              </Button>
-                              {safeMode ? (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 text-amber-400 hover:text-amber-300 hover:bg-amber-950/40"
-                                  title="Arquivar Campo"
-                                  disabled={field.archived}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleArchiveField(block.id, field.id)
-                                  }}
-                                >
-                                  <Archive className="h-3.5 w-3.5" />
-                                </Button>
-                              ) : (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 text-red-400 hover:text-red-300 hover:bg-red-950/40"
-                                  title="Excluir campo"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setConfirmDeleteField(field)
-                                    // guarda o contexto do campo a excluir
-                                    confirmDeleteContextRef.current = { blockId: block.id }
-                                  }}
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              )
-            })
-          )}
-        </div>
-
-        {/* ============ Painel de propriedades (lateral direita, fixo) ============ */}
-        <div className="min-w-0 self-start lg:col-start-2 lg:row-span-3 lg:row-start-1 xl:col-start-3 xl:row-start-1">
-          <Card className="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto border-slate-800 bg-slate-900/50 text-slate-200">
-            <CardContent className="space-y-4 p-4">
-              <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                <Settings2 className="h-4 w-4" /> Propriedades
-              </div>
-              {!selectedField ? (
-                <p className="text-sm text-slate-400">
-                  Clique em um campo dentro de um bloco para editar suas propriedades.
-                </p>
-              ) : (
-                <>
-                  <div className="space-y-1">
-                    <Label htmlFor="prop-label">Rótulo do Campo</Label>
-                    <Input
-                      id="prop-label"
-                      value={selectedField.label}
-                      onFocus={selectAuto}
-                      onChange={(e) =>
-                        updateField(selectedBlock!.id, selectedField.id, (f) => {
-                          f.label = e.target.value
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="prop-type">Tipo de Campo</Label>
-                    {safeMode ? (
-                      <div className="flex items-center gap-2 rounded-md border border-amber-900/60 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
-                        <Lock className="h-3.5 w-3.5" />
-                        <span>
-                          {FIELD_TYPE_LABELS[selectedField.type]} — bloqueado: o formulário já
-                          possui respostas.
-                        </span>
+                            <ArrowUp className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-slate-400 hover:text-slate-200"
+                            title="Mover bloco para baixo"
+                            disabled={blockIndex === blocks.length - 1}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleMoveBlock(block.id, 1)
+                            }}
+                          >
+                            <ArrowDown className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-red-400 hover:text-red-300 hover:bg-red-950/40"
+                            title="Excluir bloco"
+                            disabled={safeMode}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDeleteBlock(block.id)
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                    ) : (
-                      <Select
-                        value={selectedField.type}
-                        onValueChange={(v) =>
-                          updateField(selectedBlock!.id, selectedField.id, (f) => {
-                            const type = v as FieldType
-                            f.type = type
-                            if (isChoiceType(type)) {
-                              if (!f.options || f.options.length === 0) f.options = ['Opção 1']
+
+                      {block.fields.length === 0 ? (
+                        <p className="rounded border border-dashed border-slate-800 px-3 py-4 text-center text-xs text-slate-500">
+                          Bloco vazio — selecione-o e adicione um campo pela Caixa de Ferramentas.
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {block.fields.map((field, fieldIndex) => {
+                            const isFieldSelected = isBlockSelected && field.id === selectedFieldId
+                            return (
+                              <div
+                                key={field.id}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setSelectedBlockId(block.id)
+                                  setSelectedFieldId(field.id)
+                                }}
+                                className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
+                                  isFieldSelected
+                                    ? 'border-blue-400 bg-blue-950/20'
+                                    : 'border-slate-800 bg-slate-950/50 hover:border-slate-700'
+                                } ${field.archived ? 'opacity-50' : ''}`}
+                              >
+                                <span className="hidden w-24 shrink-0 truncate text-xs text-slate-400 xl:block">
+                                  {FIELD_TYPE_LABELS[field.type]}
+                                </span>
+                                <Input
+                                  ref={(el) => {
+                                    fieldLabelRefs.current[field.id] = el
+                                  }}
+                                  value={field.label}
+                                  onFocus={(e) => {
+                                    e.target.select()
+                                    setSelectedBlockId(block.id)
+                                    setSelectedFieldId(field.id)
+                                  }}
+                                  onChange={(e) =>
+                                    updateField(
+                                      block.id,
+                                      field.id,
+                                      (f) => (f.label = e.target.value),
+                                    )
+                                  }
+                                  className="h-7 flex-1 border-transparent bg-transparent px-1 text-sm text-slate-100 hover:border-slate-700"
+                                  placeholder="Rótulo do campo"
+                                />
+                                {field.archived && (
+                                  <Archive className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+                                )}
+                                {field.required && !field.archived && (
+                                  <span className="text-xs font-semibold text-red-400">*</span>
+                                )}
+                                <div className="ml-auto flex items-center gap-0.5">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 text-slate-500 hover:text-slate-200"
+                                    title="Mover campo para cima"
+                                    disabled={fieldIndex === 0}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleMoveField(block.id, field.id, -1)
+                                    }}
+                                  >
+                                    <ArrowUp className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 text-slate-500 hover:text-slate-200"
+                                    title="Mover campo para baixo"
+                                    disabled={fieldIndex === block.fields.length - 1}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleMoveField(block.id, field.id, 1)
+                                    }}
+                                  >
+                                    <ArrowDown className="h-3.5 w-3.5" />
+                                  </Button>
+                                  {safeMode ? (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6 text-amber-400 hover:text-amber-300 hover:bg-amber-950/40"
+                                      title="Arquivar Campo"
+                                      disabled={field.archived}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleArchiveField(block.id, field.id)
+                                      }}
+                                    >
+                                      <Archive className="h-3.5 w-3.5" />
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6 text-red-400 hover:text-red-300 hover:bg-red-950/40"
+                                      title="Excluir campo"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setConfirmDeleteField(field)
+                                        // guarda o contexto do campo a excluir
+                                        confirmDeleteContextRef.current = { blockId: block.id }
+                                      }}
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+
+            {/* ============ Painel de propriedades (lateral direita, fixo) ============ */}
+            <div className="min-w-0 self-start lg:col-start-2 lg:row-span-3 lg:row-start-1 xl:col-start-3 xl:row-start-1">
+              <Card className="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto border-slate-800 bg-slate-900/50 text-slate-200">
+                <CardContent className="space-y-4 p-4">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                    <Settings2 className="h-4 w-4" /> Propriedades
+                  </div>
+                  {!selectedField ? (
+                    <p className="text-sm text-slate-400">
+                      Clique em um campo dentro de um bloco para editar suas propriedades.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="space-y-1">
+                        <Label htmlFor="prop-label">Rótulo do Campo</Label>
+                        <Input
+                          id="prop-label"
+                          value={selectedField.label}
+                          onFocus={selectAuto}
+                          onChange={(e) =>
+                            updateField(selectedBlock!.id, selectedField.id, (f) => {
+                              f.label = e.target.value
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="prop-type">Tipo de Campo</Label>
+                        {safeMode ? (
+                          <div className="flex items-center gap-2 rounded-md border border-amber-900/60 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
+                            <Lock className="h-3.5 w-3.5" />
+                            <span>
+                              {FIELD_TYPE_LABELS[selectedField.type]} — bloqueado: o formulário já
+                              possui respostas.
+                            </span>
+                          </div>
+                        ) : (
+                          <Select
+                            value={selectedField.type}
+                            onValueChange={(v) =>
+                              updateField(selectedBlock!.id, selectedField.id, (f) => {
+                                const type = v as FieldType
+                                f.type = type
+                                if (isChoiceType(type)) {
+                                  if (!f.options || f.options.length === 0) f.options = ['Opção 1']
+                                }
+                                if (type === 'date' && !f.date_format)
+                                  f.date_format = 'date_ddmmyyyy'
+                                if (type === 'number' && !f.number_pattern)
+                                  f.number_pattern = 'quantity'
+                                if (type === 'registry' && !f.registry_mask)
+                                  f.registry_mask = 'email'
+                                if (type === 'evaluative' && !f.evaluative_scale)
+                                  f.evaluative_scale = 'smiley'
+                                if (type === 'calculation' && !f.formula) f.formula = []
+                                if (type === 'master_data' && !f.entity) f.entity = 'transportadora'
+                              })
                             }
-                            if (type === 'date' && !f.date_format) f.date_format = 'date_ddmmyyyy'
-                            if (type === 'number' && !f.number_pattern)
-                              f.number_pattern = 'quantity'
-                            if (type === 'registry' && !f.registry_mask) f.registry_mask = 'email'
-                            if (type === 'evaluative' && !f.evaluative_scale)
-                              f.evaluative_scale = 'smiley'
-                            if (type === 'calculation' && !f.formula) f.formula = []
-                            if (type === 'master_data' && !f.entity) f.entity = 'transportadora'
-                          })
+                          >
+                            <SelectTrigger className="w-full bg-slate-950">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
+                              {Object.entries(FIELD_TYPE_LABELS).map(([value, label]) => (
+                                <SelectItem key={value} value={value}>
+                                  {label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 pt-1">
+                        <Switch
+                          id="prop-required"
+                          checked={!!selectedField.required}
+                          onCheckedChange={(v) =>
+                            updateField(selectedBlock!.id, selectedField.id, (f) => {
+                              f.required = v
+                            })
+                          }
+                        />
+                        <Label htmlFor="prop-required" className="cursor-pointer font-normal">
+                          Campo Obrigatório
+                        </Label>
+                      </div>
+                      {isEvidenceType(selectedField.type) && (
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            id="prop-justification"
+                            checked={!!selectedField.requiresJustification}
+                            onCheckedChange={(v) =>
+                              updateField(selectedBlock!.id, selectedField.id, (f) => {
+                                f.requiresJustification = v
+                              })
+                            }
+                          />
+                          <Label
+                            htmlFor="prop-justification"
+                            className="cursor-pointer font-normal"
+                          >
+                            Exige justificativa em caso de reprovação
+                          </Label>
+                        </div>
+                      )}
+                      {selectedField.type === 'master_data' && (
+                        <div className="space-y-1">
+                          <Label htmlFor="prop-master-entity">Cadastro Mestre</Label>
+                          <Select
+                            value={selectedField.entity ?? 'transportadora'}
+                            onValueChange={(v) =>
+                              updateField(selectedBlock!.id, selectedField.id, (f) => {
+                                f.entity = v as TemplateField['entity']
+                              })
+                            }
+                          >
+                            <SelectTrigger id="prop-master-entity" className="w-full bg-slate-950">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
+                              {MASTER_DATA_ENTITIES.map((e) => (
+                                <SelectItem key={e.value} value={e.value}>
+                                  {e.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-500">
+                            No preenchimento, o operador escolherá um registro ativo de{' '}
+                            <strong className="font-medium text-slate-400">
+                              {MASTER_ENTITY_LABELS[selectedField.entity ?? 'transportadora']}
+                            </strong>{' '}
+                            — opções carregadas do cadastro mestre no momento da execução.
+                          </p>
+                        </div>
+                      )}
+                      <div className="space-y-1">
+                        <Label htmlFor="prop-instructions">Instruções</Label>
+                        <Textarea
+                          id="prop-instructions"
+                          value={selectedField.instructions ?? ''}
+                          onFocus={selectAuto}
+                          onChange={(e) =>
+                            updateField(selectedBlock!.id, selectedField.id, (f) => {
+                              f.instructions = e.target.value
+                            })
+                          }
+                          placeholder="Orientação exibida ao operador (opcional)"
+                          rows={2}
+                        />
+                      </div>
+
+                      {selectedField.type === 'date' && (
+                        <div className="space-y-1.5">
+                          <Label>Formato de Data/Hora</Label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {DATE_FORMATS.map((fmt) => {
+                              const isActive =
+                                (selectedField.date_format ?? 'date_ddmmyyyy') === fmt.value
+                              return (
+                                <button
+                                  key={fmt.value}
+                                  type="button"
+                                  aria-pressed={isActive}
+                                  onClick={() =>
+                                    updateField(selectedBlock!.id, selectedField.id, (f) => {
+                                      f.date_format = fmt.value
+                                    })
+                                  }
+                                  className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                                    isActive
+                                      ? 'border-blue-500 bg-blue-950/60 text-blue-200'
+                                      : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-600 hover:text-slate-200'
+                                  }`}
+                                >
+                                  {fmt.label}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedField.type === 'number' && (
+                        <NumberProperties
+                          field={selectedField}
+                          onChange={(fn) =>
+                            updateField(selectedBlock!.id, selectedField.id, (f) => fn(f))
+                          }
+                        />
+                      )}
+
+                      {selectedField.type === 'registry' && (
+                        <div className="space-y-1">
+                          <Label htmlFor="prop-registry-mask">Máscara</Label>
+                          <Select
+                            value={selectedField.registry_mask ?? 'email'}
+                            onValueChange={(v) =>
+                              updateField(selectedBlock!.id, selectedField.id, (f) => {
+                                f.registry_mask = v as TemplateField['registry_mask']
+                              })
+                            }
+                          >
+                            <SelectTrigger id="prop-registry-mask" className="w-full bg-slate-950">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
+                              {REGISTRY_MASKS.map((m) => (
+                                <SelectItem key={m.value} value={m.value}>
+                                  {m.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      {selectedField.type === 'evaluative' && (
+                        <EvaluativeProperties
+                          field={selectedField}
+                          onChange={(fn) =>
+                            updateField(selectedBlock!.id, selectedField.id, (f) => fn(f))
+                          }
+                        />
+                      )}
+
+                      {selectedField.type === 'calculation' && (
+                        <CalculationEditor
+                          field={selectedField}
+                          blocks={blocks}
+                          selfFieldId={selectedField.id}
+                          onChange={(fn) =>
+                            updateField(selectedBlock!.id, selectedField.id, (f) => fn(f))
+                          }
+                        />
+                      )}
+
+                      <FieldLogicEditor
+                        field={selectedField}
+                        blocks={blocks}
+                        selfFieldId={selectedField.id}
+                        onChange={(fn) =>
+                          updateField(selectedBlock!.id, selectedField.id, (f) => fn(f))
                         }
-                      >
-                        <SelectTrigger className="w-full bg-slate-950">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
-                          {Object.entries(FIELD_TYPE_LABELS).map(([value, label]) => (
-                            <SelectItem key={value} value={value}>
-                              {label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 pt-1">
-                    <Switch
-                      id="prop-required"
-                      checked={!!selectedField.required}
-                      onCheckedChange={(v) =>
-                        updateField(selectedBlock!.id, selectedField.id, (f) => {
-                          f.required = v
-                        })
-                      }
-                    />
-                    <Label htmlFor="prop-required" className="cursor-pointer font-normal">
-                      Campo Obrigatório
-                    </Label>
-                  </div>
-                  {isEvidenceType(selectedField.type) && (
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        id="prop-justification"
-                        checked={!!selectedField.requiresJustification}
-                        onCheckedChange={(v) =>
+                      />
+
+                      {isChoiceType(selectedField.type) && (
+                        <FieldOptionsEditor
+                          options={selectedField.options ?? []}
+                          safeMode={safeMode}
+                          onChange={(opts) =>
+                            updateField(selectedBlock!.id, selectedField.id, (f) => {
+                              f.options = opts
+                            })
+                          }
+                        />
+                      )}
+
+                      <ComplementsSection
+                        selected={selectedField.complements ?? []}
+                        onToggle={(value) =>
                           updateField(selectedBlock!.id, selectedField.id, (f) => {
-                            f.requiresJustification = v
+                            const list = f.complements ?? []
+                            f.complements = list.includes(value)
+                              ? list.filter((c) => c !== value)
+                              : [...list, value]
                           })
                         }
                       />
-                      <Label htmlFor="prop-justification" className="cursor-pointer font-normal">
-                        Exige justificativa em caso de reprovação
+
+                      {safeMode && (
+                        <p className="rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-400">
+                          Em modo de edição segura, rótulos, opções e pesos continuam editáveis;
+                          tipo, exclusão de campos e de opções antigas são limitados para preservar
+                          as respostas.
+                        </p>
+                      )}
+                      {selectedField.archived && (
+                        <p className="rounded-md border border-amber-900/60 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
+                          Este campo está arquivado e não será exibido para novos preenchimentos; as
+                          respostas antigas permanecem preservadas.
+                        </p>
+                      )}
+                    </>
+                  )}
+                  {selectedBlock && (
+                    <div className="space-y-1 border-t border-slate-800 pt-4">
+                      <Label htmlFor="prop-block-title">Título do Bloco</Label>
+                      <Input
+                        id="prop-block-title"
+                        value={selectedBlock.title}
+                        onFocus={selectAuto}
+                        onChange={(e) =>
+                          updateBlock(selectedBlock.id, (b) => {
+                            b.title = e.target.value
+                          })
+                        }
+                      />
+                      <Label htmlFor="prop-block-instructions" className="pt-2">
+                        Instruções do Bloco
                       </Label>
-                    </div>
-                  )}
-                  {selectedField.type === 'master_data' && (
-                    <div className="space-y-1">
-                      <Label htmlFor="prop-master-entity">Cadastro Mestre</Label>
-                      <Select
-                        value={selectedField.entity ?? 'transportadora'}
-                        onValueChange={(v) =>
-                          updateField(selectedBlock!.id, selectedField.id, (f) => {
-                            f.entity = v as TemplateField['entity']
+                      <Textarea
+                        id="prop-block-instructions"
+                        value={selectedBlock.instructions ?? ''}
+                        onFocus={selectAuto}
+                        onChange={(e) =>
+                          updateBlock(selectedBlock.id, (b) => {
+                            b.instructions = e.target.value
                           })
                         }
-                      >
-                        <SelectTrigger id="prop-master-entity" className="w-full bg-slate-950">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
-                          {MASTER_DATA_ENTITIES.map((e) => (
-                            <SelectItem key={e.value} value={e.value}>
-                              {e.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-500">
-                        No preenchimento, o operador escolherá um registro ativo de{' '}
-                        <strong className="font-medium text-slate-400">
-                          {MASTER_ENTITY_LABELS[selectedField.entity ?? 'transportadora']}
-                        </strong>{' '}
-                        — opções carregadas do cadastro mestre no momento da execução.
-                      </p>
+                        placeholder="Opcional"
+                        rows={2}
+                      />
                     </div>
                   )}
-                  <div className="space-y-1">
-                    <Label htmlFor="prop-instructions">Instruções</Label>
-                    <Textarea
-                      id="prop-instructions"
-                      value={selectedField.instructions ?? ''}
-                      onFocus={selectAuto}
-                      onChange={(e) =>
-                        updateField(selectedBlock!.id, selectedField.id, (f) => {
-                          f.instructions = e.target.value
-                        })
-                      }
-                      placeholder="Orientação exibida ao operador (opcional)"
-                      rows={2}
-                    />
-                  </div>
-
-                  {selectedField.type === 'date' && (
-                    <div className="space-y-1.5">
-                      <Label>Formato de Data/Hora</Label>
-                      <div className="flex flex-wrap gap-1.5">
-                        {DATE_FORMATS.map((fmt) => {
-                          const isActive =
-                            (selectedField.date_format ?? 'date_ddmmyyyy') === fmt.value
-                          return (
-                            <button
-                              key={fmt.value}
-                              type="button"
-                              aria-pressed={isActive}
-                              onClick={() =>
-                                updateField(selectedBlock!.id, selectedField.id, (f) => {
-                                  f.date_format = fmt.value
-                                })
-                              }
-                              className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
-                                isActive
-                                  ? 'border-blue-500 bg-blue-950/60 text-blue-200'
-                                  : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-600 hover:text-slate-200'
-                              }`}
-                            >
-                              {fmt.label}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {selectedField.type === 'number' && (
-                    <NumberProperties
-                      field={selectedField}
-                      onChange={(fn) =>
-                        updateField(selectedBlock!.id, selectedField.id, (f) => fn(f))
-                      }
-                    />
-                  )}
-
-                  {selectedField.type === 'registry' && (
-                    <div className="space-y-1">
-                      <Label htmlFor="prop-registry-mask">Máscara</Label>
-                      <Select
-                        value={selectedField.registry_mask ?? 'email'}
-                        onValueChange={(v) =>
-                          updateField(selectedBlock!.id, selectedField.id, (f) => {
-                            f.registry_mask = v as TemplateField['registry_mask']
-                          })
-                        }
-                      >
-                        <SelectTrigger id="prop-registry-mask" className="w-full bg-slate-950">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
-                          {REGISTRY_MASKS.map((m) => (
-                            <SelectItem key={m.value} value={m.value}>
-                              {m.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-
-                  {selectedField.type === 'evaluative' && (
-                    <EvaluativeProperties
-                      field={selectedField}
-                      onChange={(fn) =>
-                        updateField(selectedBlock!.id, selectedField.id, (f) => fn(f))
-                      }
-                    />
-                  )}
-
-                  {selectedField.type === 'calculation' && (
-                    <CalculationEditor
-                      field={selectedField}
-                      blocks={blocks}
-                      selfFieldId={selectedField.id}
-                      onChange={(fn) =>
-                        updateField(selectedBlock!.id, selectedField.id, (f) => fn(f))
-                      }
-                    />
-                  )}
-
-                  <FieldLogicEditor
-                    field={selectedField}
-                    blocks={blocks}
-                    selfFieldId={selectedField.id}
-                    onChange={(fn) =>
-                      updateField(selectedBlock!.id, selectedField.id, (f) => fn(f))
-                    }
-                  />
-
-                  {isChoiceType(selectedField.type) && (
-                    <FieldOptionsEditor
-                      options={selectedField.options ?? []}
-                      safeMode={safeMode}
-                      onChange={(opts) =>
-                        updateField(selectedBlock!.id, selectedField.id, (f) => {
-                          f.options = opts
-                        })
-                      }
-                    />
-                  )}
-
-                  <ComplementsSection
-                    selected={selectedField.complements ?? []}
-                    onToggle={(value) =>
-                      updateField(selectedBlock!.id, selectedField.id, (f) => {
-                        const list = f.complements ?? []
-                        f.complements = list.includes(value)
-                          ? list.filter((c) => c !== value)
-                          : [...list, value]
-                      })
-                    }
-                  />
-
-                  {safeMode && (
-                    <p className="rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-400">
-                      Em modo de edição segura, rótulos, opções e pesos continuam editáveis; tipo,
-                      exclusão de campos e de opções antigas são limitados para preservar as
-                      respostas.
-                    </p>
-                  )}
-                  {selectedField.archived && (
-                    <p className="rounded-md border border-amber-900/60 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
-                      Este campo está arquivado e não será exibido para novos preenchimentos; as
-                      respostas antigas permanecem preservadas.
-                    </p>
-                  )}
-                </>
-              )}
-              {selectedBlock && (
-                <div className="space-y-1 border-t border-slate-800 pt-4">
-                  <Label htmlFor="prop-block-title">Título do Bloco</Label>
-                  <Input
-                    id="prop-block-title"
-                    value={selectedBlock.title}
-                    onFocus={selectAuto}
-                    onChange={(e) =>
-                      updateBlock(selectedBlock.id, (b) => {
-                        b.title = e.target.value
-                      })
-                    }
-                  />
-                  <Label htmlFor="prop-block-instructions" className="pt-2">
-                    Instruções do Bloco
-                  </Label>
-                  <Textarea
-                    id="prop-block-instructions"
-                    value={selectedBlock.instructions ?? ''}
-                    onFocus={selectAuto}
-                    onChange={(e) =>
-                      updateBlock(selectedBlock.id, (b) => {
-                        b.instructions = e.target.value
-                      })
-                    }
-                    placeholder="Opcional"
-                    rows={2}
-                  />
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
 
       {/* Diálogo amplo de pré-visualização (Preview) */}
       <TemplatePreview

@@ -28,6 +28,7 @@ import { listSubjects } from '@/services/subjects'
 import type { DepartmentRecord } from '@/types/department'
 import type { SubjectRecord } from '@/types/subject'
 import type { TemplateRecord } from '@/types/template'
+import { buildBlocksPayload } from '@/lib/templateConfig'
 import { FileText, FolderCog, Pencil, Plus, Search } from 'lucide-react'
 
 type View = 'list' | 'builder'
@@ -155,10 +156,15 @@ export default function Formularios() {
     }
     setIsSaving(true)
     try {
+      // Atribuições + Design do PDF viajam DENTRO do JSON blocks (sem colunas novas).
+      const payloadWithConfig = {
+        ...payload,
+        blocks: buildBlocksPayload(payload.blocks, payload.assignments, payload.pdfDesign),
+      }
       if (editingTemplate) {
-        await updateTemplate(editingTemplate.id, payload)
+        await updateTemplate(editingTemplate.id, payloadWithConfig)
       } else {
-        await createTemplate(payload)
+        await createTemplate(payloadWithConfig)
       }
       toast({
         title: editingTemplate ? 'Formulário atualizado' : 'Formulário criado',
