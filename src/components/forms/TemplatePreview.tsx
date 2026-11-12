@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label'
 import { Eye, Info, ShieldAlert } from 'lucide-react'
 import { UNIT_CATEGORIES, type TemplateBlock } from '@/types/template'
 import { ComplementsRow, PreviewInput, type PreviewValues } from '@/components/forms/PreviewInput'
+import type { EntityDefinitionWithEntries } from '@/services/masterData'
 import {
   findInvalidRegistryFields,
   requiredFieldKey,
@@ -34,10 +35,18 @@ export interface TemplatePreviewProps {
   onOpenChange: (open: boolean) => void
   header: PreviewHeaderInfo
   blocks: TemplateBlock[]
+  /** Entidades ativas dos cadastros mestres com itens ativos (campo master_data). */
+  masterEntities?: EntityDefinitionWithEntries[]
 }
 
 /** Diálogo amplo que exibe o formulário como o operador o verá na execução. */
-export function TemplatePreview({ open, onOpenChange, header, blocks }: TemplatePreviewProps) {
+export function TemplatePreview({
+  open,
+  onOpenChange,
+  header,
+  blocks,
+  masterEntities,
+}: TemplatePreviewProps) {
   const [values, setValues] = useState<PreviewValues>({})
   const [invalidList, setInvalidList] = useState<InvalidRegistryEntry[]>([])
   const setValue = (key: string, value: PreviewValues[string]) =>
@@ -166,6 +175,7 @@ export function TemplatePreview({ open, onOpenChange, header, blocks }: Template
                 invalidKeys={invalidKeys}
                 visibility={visibility}
                 calcResults={calcResults}
+                masterEntities={masterEntities}
               />
             ))
           )}
@@ -191,6 +201,7 @@ function PreviewBlock({
   invalidKeys,
   visibility,
   calcResults,
+  masterEntities,
 }: {
   block: TemplateBlock
   values: PreviewValues
@@ -201,6 +212,8 @@ function PreviewBlock({
   visibility: Record<string, boolean>
   /** Resultado do cálculo por fieldId (campos calculation). */
   calcResults: Map<string, CalculationResult>
+  /** Entidades ativas dos cadastros mestres (campo master_data). */
+  masterEntities?: EntityDefinitionWithEntries[]
 }) {
   // Campos ativos E visíveis conforme os gatilhos (motor de lógica reativa).
   const activeFields = block.fields.filter(
@@ -269,6 +282,7 @@ function PreviewBlock({
                     fieldUnit={fieldUnit}
                     invalid={!!errorMessage}
                     onValue={(v) => onValue(fieldKey, v)}
+                    masterEntities={masterEntities}
                   />
                 )}
                 {errorMessage && (

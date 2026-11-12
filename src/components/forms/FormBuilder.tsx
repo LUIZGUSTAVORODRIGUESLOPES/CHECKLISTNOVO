@@ -76,7 +76,6 @@ import {
   EVALUATIVE_SCALES,
   FIELD_COMPLEMENTS,
   FIELD_TYPE_LABELS,
-  MASTER_DATA_ENTITIES,
   NUMBER_PATTERNS,
   REGISTRY_MASKS,
   UNIT_CATEGORIES,
@@ -84,11 +83,14 @@ import {
   type EvaluativeScale,
   type FieldComplement,
   type FieldType,
-  type MasterDataEntity,
   type TemplateBlock,
   type TemplateField,
   type TemplateRecord,
 } from '@/types/template'
+import { listActiveEntitiesWithEntries } from '@/services/masterData'
+import { masterDataEntityLabel } from '@/types/masterData'
+import type { EntityDefinitionWithEntries } from '@/services/masterData'
+import { Link } from 'react-router-dom'
 
 const selectAuto = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) =>
   e.target.select()
@@ -118,7 +120,8 @@ const newField = (type: FieldType, index: number): TemplateField => {
   if (type === 'registry') base.registry_mask = 'email'
   if (type === 'evaluative') base.evaluative_scale = 'smiley'
   if (type === 'calculation') base.formula = []
-  if (type === 'master_data') base.entity = 'transportadora'
+  // master_data não tem default: a entidade é escolhida no painel de propriedades
+  // a partir das entidades REAIS de Cadastros Mestres.
   base.alwaysVisible = true
   return base
 }
@@ -212,6 +215,23 @@ export function FormBuilder({
   const [confirmDeleteField, setConfirmDeleteField] = useState<TemplateField | null>(null)
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
   const confirmDeleteContextRef = useRef<{ blockId: string } | null>(null)
+
+  // Entidades REAIS de cadastros mestres (ativos), com seus itens ativos —
+  // alimentam o painel de propriedades do campo master_data e o Preview.
+  const [masterEntities, setMasterEntities] = useState<EntityDefinitionWithEntries[] | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    listActiveEntitiesWithEntries(true)
+      .then((list) => {
+        if (!cancelled) setMasterEntities(list)
+      })
+      .catch(() => {
+        if (!cancelled) setMasterEntities([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const hasResponses = (responsesCount ?? 0) > 0
   // Edição segura: com respostas, tipo do campo é travado e exclusão vira arquivamento.
@@ -888,7 +908,8 @@ export function FormBuilder({
                                 if (type === 'evaluative' && !f.evaluative_scale)
                                   f.evaluative_scale = 'smiley'
                                 if (type === 'calculation' && !f.formula) f.formula = []
-                                if (type === 'master_data' && !f.entity) f.entity = 'transportadora'
+                                // master_data: sem default legado — entidade é
+                                // escolhida no painel a partir dos cadastros reais.
                               })
                             }
                           >
@@ -941,31 +962,64 @@ export function FormBuilder({
                       {selectedField.type === 'master_data' && (
                         <div className="space-y-1">
                           <Label htmlFor="prop-master-entity">Cadastro Mestre</Label>
-                          <Select
-                            value={selectedField.entity ?? 'transportadora'}
-                            onValueChange={(v) =>
-                              updateField(selectedBlock!.id, selectedField.id, (f) => {
-                                f.entity = v as TemplateField['entity']
-                              })
-                            }
-                          >
-                            <SelectTrigger id="prop-master-entity" className="w-full bg-slate-950">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
-                              {MASTER_DATA_ENTITIES.map((e) => (
-                                <SelectItem key={e.value} value={e.value}>
-                                  {e.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          {masterEntities !== null && masterEntities.length === 0 ? (
+                            <div className="rounded-md border border-amber-700/60 bg-amber-950/30 px-3 py-3 text-xs text-amber-200">
+                              Nenhum cadastro mestre ativo encontrado. Crie e ative entidades em{' '}
+                              <Link
+                                to="/cadastros-mestres"
+                                className="font-semibold underline hover:text-amber-100"
+                              >
+                                Cadastros Mestres
+                              </Link>
+                              .
+                            </div>
+                          ) : (
+                            <Select
+                              value={
+                                selectedField.entity &&
+                                masterEntities?.some((e) => e.id === selectedField.entity)
+                                  ? selectedField.entity
+                                  : ''
+                              }
+                              onValueChange={(v) =>
+                                updateField(selectedBlock!.id, selectedField.id, (f) => {
+                                  f.entity = v
+                                })
+                              }
+                            >
+                              <SelectTrigger
+                                id="prop-master-entity"
+                                className="w-full bg-slate-950"
+                              >
+                                <SelectValue placeholder="Selecione a entidade..." />
+                              </SelectTrigger>
+                              <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
+                                {masterEntities?.map((e) => (
+                                  <SelectItem key={e.id} value={e.id}>
+                                    {e.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                          {selectedField.entity &&
+                            !masterEntities?.some((e) => e.id === selectedField.entity) && (
+                              <p className="text-xs text-amber-300">
+                                Valor atual:{' '}
+                                <strong className="font-medium">
+                                  {masterDataEntityLabel(
+                                    selectedField.entity,
+                                    masterEntities ?? [],
+                                  )}
+                                </strong>{' '}
+                                — entidade inativa, removida ou legada. Selecione outra para
+                                atualizar.
+                              </p>
+                            )}
                           <p className="rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-500">
-                            No preenchimento, o operador escolherá um registro ativo de{' '}
-                            <strong className="font-medium text-slate-400">
-                              {MASTER_ENTITY_LABELS[selectedField.entity ?? 'transportadora']}
-                            </strong>{' '}
-                            — opções carregadas do cadastro mestre no momento da execução.
+                            No preenchimento, o operador escolherá um registro ativo da entidade
+                            selecionada — opções carregadas do cadastro mestre no momento da
+                            execução.
                           </p>
                         </div>
                       )}
@@ -1166,6 +1220,7 @@ export function FormBuilder({
           subjectName: subjects.find((s) => s.id === subjectId)?.name ?? '',
         }}
         blocks={blocks}
+        masterEntities={masterEntities ?? undefined}
       />
 
       {/* Confirmação de exclusão de campo (modo livre) */}
@@ -1402,12 +1457,6 @@ function EvaluativeProperties({ field, onChange }: SubProps) {
 /** Tipos de evidência de campo (usam o switch de justificativa). */
 const isEvidenceType = (type: FieldType) =>
   type === 'master_data' || type === 'gps' || type === 'photo' || type === 'signature'
-
-/** Rótulos das entidades de cadastros mestres. */
-const MASTER_ENTITY_LABELS: Record<MasterDataEntity, string> = MASTER_DATA_ENTITIES.reduce(
-  (acc, e) => ({ ...acc, [e.value]: e.label }),
-  {} as Record<MasterDataEntity, string>,
-)
 
 /** Seção "Selecione os complementos desejados" — presente em todos os tipos. */
 function ComplementsSection({

@@ -9,6 +9,7 @@ import {
   type NumberPattern,
   type TemplateField,
 } from '@/types/template'
+import type { EntityDefinitionWithEntries } from '@/services/masterData'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -163,6 +164,7 @@ export function PreviewInput({
   fieldUnit,
   invalid,
   onValue,
+  masterEntities,
 }: {
   field: TemplateField
   value: PreviewValues[string] | null
@@ -170,6 +172,8 @@ export function PreviewInput({
   /** true quando a checagem de submissão marcou o campo com erro. */
   invalid?: boolean
   onValue: (value: PreviewValues[string]) => void
+  /** Entidades ativas dos cadastros mestres (campo master_data). */
+  masterEntities?: EntityDefinitionWithEntries[]
 }) {
   const inputClass = invalid
     ? 'border-red-500/80 bg-slate-950/60 text-sm text-slate-100 placeholder:text-slate-600 focus-visible:ring-red-500/40'
@@ -407,7 +411,15 @@ export function PreviewInput({
     }
 
     case 'master_data':
-      return <MasterDataInput field={field} value={value} invalid={invalid} onValue={onValue} />
+      return (
+        <MasterDataInput
+          field={field}
+          value={value}
+          invalid={invalid}
+          onValue={onValue}
+          entities={masterEntities}
+        />
+      )
 
     case 'gps':
       return <GpsInput value={value} invalid={invalid} onValue={onValue} />

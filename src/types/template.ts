@@ -176,8 +176,12 @@ export interface TemplateField {
    * condição ser atendida). Padrão/ausente = true (sempre visível).
    */
   alwaysVisible?: boolean
-  /** Entidade dos cadastros mestres (campo master_data). */
-  entity?: MasterDataEntity
+  /**
+   * Entidade dos cadastros mestres (campo master_data). Novos templates
+   * guardam o id da entity_definitions (string de 15 chars); templates antigos
+   * guardam um slug legado ('transportadora'/'veiculo'/'doca').
+   */
+  entity?: string
   /**
    * Exige justificativa em caso de reprovação (campos de evidência:
    * master_data, gps, photo, signature).
@@ -283,18 +287,6 @@ export const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   photo: 'Foto / Câmera',
   signature: 'Assinatura',
 }
-
-/**
- * Entidades de cadastros mestres disponíveis para o campo master_data.
- * Lista extensível: adicionar aqui reflete em Toolbox, painel e Preview.
- */
-export type MasterDataEntity = 'transportadora' | 'veiculo' | 'doca'
-
-export const MASTER_DATA_ENTITIES: { value: MasterDataEntity; label: string }[] = [
-  { value: 'transportadora', label: 'Transportadora' },
-  { value: 'veiculo', label: 'Veículo' },
-  { value: 'doca', label: 'Doca' },
-]
 
 /** True quando o campo tem lista de opções editável (select/multiselect). */
 export const isChoiceType = (type: FieldType) => type === 'select' || type === 'multiselect'

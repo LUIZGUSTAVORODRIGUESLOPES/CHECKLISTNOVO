@@ -13,6 +13,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Patio from './pages/Patio'
 import Formularios from './pages/Formularios'
+import CadastrosMestres from './pages/CadastrosMestres'
 import Relatorios from './pages/Relatorios'
 import Usuarios from './pages/Usuarios'
 import NotFound from './pages/NotFound'
@@ -41,6 +42,7 @@ const App = () => (
               {/* Módulos restritos exclusivamente a ADMIN (Gestores) */}
               <Route element={<RoleGuard allowedRoles={['admin']} />}>
                 <Route path="/formularios" element={<Formularios />} />
+                <Route path="/cadastros-mestres" element={<CadastrosMestres />} />
                 <Route path="/usuarios" element={<Usuarios />} />
               </Route>
             </Route>

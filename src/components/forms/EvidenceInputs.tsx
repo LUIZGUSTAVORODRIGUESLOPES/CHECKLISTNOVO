@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Camera, CheckCircle2, Database, Loader2, MapPin, Navigation, PenTool } from 'lucide-react'
-import { MASTER_DATA_ENTITIES, type TemplateField } from '@/types/template'
+import type { TemplateField } from '@/types/template'
+import { masterDataEntityLabel } from '@/types/masterData'
+import type { EntityDefinitionWithEntries } from '@/services/masterData'
 import type { GpsValue, PreviewValues, SignatureValue } from '@/components/forms/PreviewInput'
 
 const inputClass =
@@ -21,15 +29,18 @@ export function MasterDataInput({
   value,
   invalid,
   onValue,
+  entities,
 }: {
   field: TemplateField
   value: PreviewValues[string] | null
   invalid?: boolean
   onValue: (value: PreviewValues[string]) => void
+  /** Entidades ativas com itens ativos (cadastros mestres reais). */
+  entities?: EntityDefinitionWithEntries[]
 }) {
-  const entityLabel =
-    MASTER_DATA_ENTITIES.find((e) => e.value === (field.entity ?? 'transportadora'))?.label ??
-    field.entity
+  const entity = entities?.find((e) => e.id === field.entity) ?? null
+  const entityLabel = masterDataEntityLabel(field.entity, entities ?? [])
+  const options = entity?.entries ?? null
   return (
     <div className="space-y-1">
       <Select value={(value as string) || undefined} onValueChange={(v) => onValue(v)}>
@@ -37,12 +48,20 @@ export function MasterDataInput({
           <SelectValue placeholder="Selecione..." />
         </SelectTrigger>
         <SelectContent className="border-slate-800 bg-slate-900 text-slate-100">
-          {/* Populada em tempo de execução com os registros do cadastro mestre. */}
+          {options?.map((opt) => (
+            <SelectItem key={opt.id} value={opt.value}>
+              {opt.value}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
       <p className="flex items-start gap-1.5 text-[11px] text-slate-500">
         <Database className="mt-0.5 h-3 w-3 shrink-0" />
-        As opções serão carregadas do cadastro mestre “{entityLabel}” no momento do preenchimento.
+        {options && options.length > 0
+          ? `Opções do cadastro mestre “${entityLabel}” (${options.length} ativo(s)).`
+          : options !== null
+            ? `O cadastro mestre “${entityLabel}” não possui itens ativos.`
+            : `As opções serão carregadas do cadastro mestre “${entityLabel}” no momento do preenchimento.`}
       </p>
     </div>
   )

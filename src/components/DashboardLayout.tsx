@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Truck,
   ClipboardList,
+  Database,
   FileBarChart,
   Users,
   LogOut,
@@ -38,6 +39,12 @@ const NAV_ITEMS: NavigationItem[] = [
     title: 'Formulários',
     path: '/formularios',
     icon: ClipboardList,
+    adminOnly: true,
+  },
+  {
+    title: 'Cadastros Mestres',
+    path: '/cadastros-mestres',
+    icon: Database,
     adminOnly: true,
   },
   {
