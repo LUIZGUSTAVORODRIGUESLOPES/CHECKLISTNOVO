@@ -29,8 +29,6 @@ import {
 import {
   AlertTriangle,
   Archive,
-  ArrowDown,
-  ArrowUp,
   Barcode,
   ClipboardCheck,
   ChevronDown,
@@ -58,6 +56,11 @@ import { CalculationEditor } from '@/components/forms/CalculationEditor'
 import { FieldLogicEditor } from '@/components/forms/FieldLogicEditor'
 import { AssignmentsTab } from '@/components/forms/AssignmentsTab'
 import { PdfDesignTab } from '@/components/forms/PdfDesignTab'
+import {
+  useDragReorder,
+  type DragState,
+  type DropIndicator,
+} from '@/components/forms/use-drag-reorder'
 import {
   DEFAULT_ASSIGNMENTS,
   DEFAULT_PDF_DESIGN,
@@ -318,25 +321,54 @@ export function FormBuilder({
     })
   }
 
-  const handleMoveBlock = (blockId: string, dir: -1 | 1) => {
+  /**
+   * Reordenação por Drag and Drop: move o bloco arrastado para antes/ depois
+   * do bloco alvo. Atualiza o array `blocks` no estado — a nova ordem segue a
+   * mesma estrutura de JSON blocks de hoje e persiste ao salvar o template.
+   */
+  const reorderBlocksByDrop = (draggedBlockId: string, targetBlockId: string, before: boolean) => {
     setBlocks((prev) => {
-      const idx = prev.findIndex((b) => b.id === blockId)
-      const to = idx + dir
-      if (idx === -1 || to < 0 || to >= prev.length) return prev
+      const from = prev.findIndex((b) => b.id === draggedBlockId)
+      if (from === -1) return prev
       const next = [...prev]
-      const [item] = next.splice(idx, 1)
+      const [item] = next.splice(from, 1)
+      let to = next.findIndex((b) => b.id === targetBlockId)
+      if (to === -1) return prev
+      if (!before) to += 1
       next.splice(to, 0, item)
       return next
     })
   }
 
-  const handleMoveField = (blockId: string, fieldId: string, dir: -1 | 1) => {
-    updateBlock(blockId, (block) => {
-      const idx = block.fields.findIndex((f) => f.id === fieldId)
-      const to = idx + dir
-      if (idx === -1 || to < 0 || to >= block.fields.length) return
-      const [item] = block.fields.splice(idx, 1)
-      block.fields.splice(to, 0, item)
+  /**
+   * Reordenação por Drag and Drop de campos: move o campo arrastado para
+   * antes/depois do campo alvo — no mesmo bloco ou em outro bloco.
+   */
+  const reorderFieldsByDrop = (
+    draggedFieldId: string,
+    targetBlockId: string,
+    targetFieldId: string | null,
+    before: boolean,
+  ) => {
+    setBlocks((prev) => {
+      const source = prev.find((b) => b.fields.some((f) => f.id === draggedFieldId))
+      if (!source) return prev
+      const dragged = source.fields.find((f) => f.id === draggedFieldId)!
+      const next = prev.map((b) => ({
+        ...b,
+        fields: b.fields.filter((f) => f.id !== draggedFieldId),
+      }))
+      const target = next.find((b) => b.id === targetBlockId)
+      if (!target) return prev
+      const fields = [...target.fields]
+      if (targetFieldId) {
+        const idx = fields.findIndex((f) => f.id === targetFieldId)
+        if (idx === -1) return prev
+        fields.splice(before ? idx : idx + 1, 0, dragged)
+      } else {
+        fields.push(dragged)
+      }
+      return next.map((b) => (b.id === targetBlockId ? { ...b, fields } : b))
     })
   }
 
@@ -355,6 +387,54 @@ export function FormBuilder({
   }
 
   const activeSubjects = subjects.filter((s) => s.active || s.id === subjectId)
+
+  // ---------- drag and drop ----------
+  const {
+    drag,
+    dropIndicator,
+    startBlockDrag,
+    startFieldDrag,
+    endDrag,
+    blockDragOver,
+    handleBlockDrop,
+    fieldDragOver,
+    handleFieldDrop,
+    blockBodyDragOver,
+    handleBlockBodyDrop,
+  } = useDragReorder(reorderBlocksByDrop, reorderFieldsByDrop)
+  const isDraggingBlock = (blockId: string) => drag?.type === 'block' && drag.draggingId === blockId
+  const isDraggingField = (fieldId: string) => drag?.type === 'field' && drag.draggingId === fieldId
+  const isFieldIndicator = (fieldId: string) =>
+    dropIndicator?.type === 'field' && dropIndicator.targetId === fieldId
+  const blockDropLine = (blockId: string) =>
+    drag?.type === 'block' &&
+    blockId !== drag.draggingId &&
+    dropIndicator?.type === 'block' &&
+    dropIndicator.targetId === blockId ? (
+      dropIndicator.before ? (
+        <div className="mb-3 h-1 rounded-full bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.5)]" />
+      ) : null
+    ) : null
+  const blockDropLineAfter = (blockId: string) =>
+    drag?.type === 'block' &&
+    blockId !== drag.draggingId &&
+    dropIndicator?.type === 'block' &&
+    dropIndicator.targetId === blockId &&
+    !dropIndicator.before ? (
+      <div className="mt-3 h-1 rounded-full bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.5)]" />
+    ) : null
+  const fieldDropLine = (fieldId: string, where: 'before' | 'after') =>
+    dropIndicator?.type === 'field' &&
+    dropIndicator.targetId === fieldId &&
+    dropIndicator.before === (where === 'before') ? (
+      <div className="h-1 rounded-full bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.5)]" />
+    ) : null
+  const bodyDropLine = (blockId: string) =>
+    dropIndicator?.type === 'field' &&
+    dropIndicator.targetId === null &&
+    dropIndicator.targetBlockId === blockId ? (
+      <div className="mt-2 h-1 rounded-full bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.5)]" />
+    ) : null
 
   return (
     <div className="flex-1 space-y-6 p-4 sm:p-6 bg-slate-950 min-h-screen">
@@ -558,203 +638,195 @@ export function FormBuilder({
                   </p>
                 </div>
               ) : (
-                blocks.map((block, blockIndex) => {
+                blocks.map((block) => {
                   const isBlockSelected = block.id === selectedBlockId
                   return (
-                    <div
-                      key={block.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => {
-                        setSelectedBlockId(block.id)
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') setSelectedBlockId(block.id)
-                      }}
-                      className={`cursor-pointer rounded-lg border p-4 transition-colors ${
-                        isBlockSelected
-                          ? 'border-blue-500 bg-slate-900/70 shadow-[0_0_0_1px_rgba(59,130,246,0.4)]'
-                          : 'border-slate-800 bg-slate-900/40 hover:border-slate-700'
-                      }`}
-                    >
-                      <div className="mb-3 flex items-center gap-2">
-                        <GripVertical className="h-4 w-4 shrink-0 text-slate-500" />
-                        <Input
-                          ref={(el) => {
-                            blockTitleRefs.current[block.id] = el
-                          }}
-                          value={block.title}
-                          onFocus={(e) => {
-                            e.target.select()
-                            setSelectedBlockId(block.id)
-                          }}
-                          onChange={(e) => updateBlock(block.id, (b) => (b.title = e.target.value))}
-                          className="h-8 border-transparent bg-transparent px-1 text-sm font-semibold text-white hover:border-slate-700"
-                          placeholder="Título do bloco"
-                        />
-                        <Badge
-                          variant="outline"
-                          className="border-slate-700 text-[10px] text-slate-400"
-                        >
-                          {block.fields.length} campo{block.fields.length === 1 ? '' : 's'}
-                        </Badge>
-                        <div className="ml-auto flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-slate-400 hover:text-slate-100"
-                            title="Mover bloco para cima"
-                            disabled={blockIndex === 0}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleMoveBlock(block.id, -1)
-                            }}
+                    <div key={block.id}>
+                      {blockDropLine(block.id)}
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => {
+                          setSelectedBlockId(block.id)
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') setSelectedBlockId(block.id)
+                        }}
+                        onDragOver={(e) => blockDragOver(block.id, e)}
+                        onDrop={(e) => handleBlockDrop(block.id, e)}
+                        className={`rounded-lg border p-4 transition-colors ${
+                          isBlockSelected
+                            ? 'border-blue-500 bg-slate-900/70 shadow-[0_0_0_1px_rgba(59,130,246,0.4)]'
+                            : 'border-slate-800 bg-slate-900/40 hover:border-slate-700'
+                        } ${isDraggingBlock(block.id) ? 'opacity-40' : ''}`}
+                      >
+                        <div className="mb-3 flex items-center gap-2">
+                          <span
+                            draggable
+                            onDragStart={(e) => startBlockDrag(block.id, e)}
+                            onDragEnd={endDrag}
+                            title="Arraste para reordenar o bloco"
+                            className="flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-md text-slate-500 hover:bg-slate-800 hover:text-slate-200 active:cursor-grabbing"
                           >
-                            <ArrowUp className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-slate-400 hover:text-slate-200"
-                            title="Mover bloco para baixo"
-                            disabled={blockIndex === blocks.length - 1}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleMoveBlock(block.id, 1)
+                            <GripVertical className="h-4 w-4" />
+                          </span>
+                          <Input
+                            ref={(el) => {
+                              blockTitleRefs.current[block.id] = el
                             }}
-                          >
-                            <ArrowDown className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-red-400 hover:text-red-300 hover:bg-red-950/40"
-                            title="Excluir bloco"
-                            disabled={safeMode}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDeleteBlock(block.id)
+                            value={block.title}
+                            onFocus={(e) => {
+                              e.target.select()
+                              setSelectedBlockId(block.id)
                             }}
+                            onChange={(e) =>
+                              updateBlock(block.id, (b) => (b.title = e.target.value))
+                            }
+                            className="h-8 border-transparent bg-transparent px-1 text-sm font-semibold text-white hover:border-slate-700"
+                            placeholder="Título do bloco"
+                          />
+                          <Badge
+                            variant="outline"
+                            className="border-slate-700 text-[10px] text-slate-400"
                           >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                            {block.fields.length} campo{block.fields.length === 1 ? '' : 's'}
+                          </Badge>
+                          <div className="ml-auto flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-red-400 hover:text-red-300 hover:bg-red-950/40"
+                              title="Excluir bloco"
+                              disabled={safeMode}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleDeleteBlock(block.id)
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
-                      </div>
 
-                      {block.fields.length === 0 ? (
-                        <p className="rounded border border-dashed border-slate-800 px-3 py-4 text-center text-xs text-slate-500">
-                          Bloco vazio — selecione-o e adicione um campo pela Caixa de Ferramentas.
-                        </p>
-                      ) : (
-                        <div className="space-y-2">
-                          {block.fields.map((field, fieldIndex) => {
-                            const isFieldSelected = isBlockSelected && field.id === selectedFieldId
-                            return (
-                              <div
-                                key={field.id}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setSelectedBlockId(block.id)
-                                  setSelectedFieldId(field.id)
-                                }}
-                                className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
-                                  isFieldSelected
-                                    ? 'border-blue-400 bg-blue-950/20'
-                                    : 'border-slate-800 bg-slate-950/50 hover:border-slate-700'
-                                } ${field.archived ? 'opacity-50' : ''}`}
-                              >
-                                <span className="hidden w-24 shrink-0 truncate text-xs text-slate-400 xl:block">
-                                  {FIELD_TYPE_LABELS[field.type]}
-                                </span>
-                                <Input
-                                  ref={(el) => {
-                                    fieldLabelRefs.current[field.id] = el
-                                  }}
-                                  value={field.label}
-                                  onFocus={(e) => {
-                                    e.target.select()
-                                    setSelectedBlockId(block.id)
-                                    setSelectedFieldId(field.id)
-                                  }}
-                                  onChange={(e) =>
-                                    updateField(
-                                      block.id,
-                                      field.id,
-                                      (f) => (f.label = e.target.value),
-                                    )
-                                  }
-                                  className="h-7 flex-1 border-transparent bg-transparent px-1 text-sm text-slate-100 hover:border-slate-700"
-                                  placeholder="Rótulo do campo"
-                                />
-                                {field.archived && (
-                                  <Archive className="h-3.5 w-3.5 shrink-0 text-amber-400" />
-                                )}
-                                {field.required && !field.archived && (
-                                  <span className="text-xs font-semibold text-red-400">*</span>
-                                )}
-                                <div className="ml-auto flex items-center gap-0.5">
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6 text-slate-500 hover:text-slate-200"
-                                    title="Mover campo para cima"
-                                    disabled={fieldIndex === 0}
+                        {block.fields.length === 0 ? (
+                          <div
+                            onDragOver={(e) => blockBodyDragOver(block.id, e)}
+                            onDrop={(e) => handleBlockBodyDrop(block.id, e)}
+                          >
+                            {bodyDropLine(block.id)}
+                            <p className="rounded border border-dashed border-slate-800 px-3 py-4 text-center text-xs text-slate-500">
+                              Bloco vazio — selecione-o e adicione um campo pela Caixa de
+                              Ferramentas.
+                            </p>
+                          </div>
+                        ) : (
+                          <div
+                            className="space-y-2"
+                            onDragOver={(e) => blockBodyDragOver(block.id, e)}
+                            onDrop={(e) => handleBlockBodyDrop(block.id, e)}
+                          >
+                            {bodyDropLine(block.id)}
+                            {block.fields.map((field) => {
+                              const isFieldSelected =
+                                isBlockSelected && field.id === selectedFieldId
+                              return (
+                                <div key={field.id}>
+                                  {fieldDropLine(field.id, 'before')}
+                                  <div
                                     onClick={(e) => {
                                       e.stopPropagation()
-                                      handleMoveField(block.id, field.id, -1)
+                                      setSelectedBlockId(block.id)
+                                      setSelectedFieldId(field.id)
                                     }}
+                                    onDragOver={(e) => fieldDragOver(block.id, field.id, e)}
+                                    onDrop={(e) => handleFieldDrop(block.id, field.id, e)}
+                                    className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
+                                      isFieldSelected
+                                        ? 'border-blue-400 bg-blue-950/20'
+                                        : 'border-slate-800 bg-slate-950/50 hover:border-slate-700'
+                                    } ${field.archived ? 'opacity-50' : ''} ${
+                                      isDraggingField(field.id) ? 'opacity-30' : ''
+                                    }`}
                                   >
-                                    <ArrowUp className="h-3.5 w-3.5" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6 text-slate-500 hover:text-slate-200"
-                                    title="Mover campo para baixo"
-                                    disabled={fieldIndex === block.fields.length - 1}
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleMoveField(block.id, field.id, 1)
-                                    }}
-                                  >
-                                    <ArrowDown className="h-3.5 w-3.5" />
-                                  </Button>
-                                  {safeMode ? (
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-6 w-6 text-amber-400 hover:text-amber-300 hover:bg-amber-950/40"
-                                      title="Arquivar Campo"
-                                      disabled={field.archived}
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        handleArchiveField(block.id, field.id)
-                                      }}
+                                    <span
+                                      draggable
+                                      onDragStart={(e) => startFieldDrag(block.id, field.id, e)}
+                                      onDragEnd={endDrag}
+                                      title="Arraste para reordenar ou mover o campo"
+                                      className="flex h-6 w-6 shrink-0 cursor-grab items-center justify-center rounded text-slate-600 hover:bg-slate-800 hover:text-slate-200 active:cursor-grabbing"
                                     >
-                                      <Archive className="h-3.5 w-3.5" />
-                                    </Button>
-                                  ) : (
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-6 w-6 text-red-400 hover:text-red-300 hover:bg-red-950/40"
-                                      title="Excluir campo"
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        setConfirmDeleteField(field)
-                                        // guarda o contexto do campo a excluir
-                                        confirmDeleteContextRef.current = { blockId: block.id }
+                                      <GripVertical className="h-3.5 w-3.5" />
+                                    </span>
+                                    <span className="hidden w-24 shrink-0 truncate text-xs text-slate-400 xl:block">
+                                      {FIELD_TYPE_LABELS[field.type]}
+                                    </span>
+                                    <Input
+                                      ref={(el) => {
+                                        fieldLabelRefs.current[field.id] = el
                                       }}
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                  )}
+                                      value={field.label}
+                                      onFocus={(e) => {
+                                        e.target.select()
+                                        setSelectedBlockId(block.id)
+                                        setSelectedFieldId(field.id)
+                                      }}
+                                      onChange={(e) =>
+                                        updateField(
+                                          block.id,
+                                          field.id,
+                                          (f) => (f.label = e.target.value),
+                                        )
+                                      }
+                                      className="h-7 flex-1 border-transparent bg-transparent px-1 text-sm text-slate-100 hover:border-slate-700"
+                                      placeholder="Rótulo do campo"
+                                    />
+                                    {field.archived && (
+                                      <Archive className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+                                    )}
+                                    {field.required && !field.archived && (
+                                      <span className="text-xs font-semibold text-red-400">*</span>
+                                    )}
+                                    <div className="ml-auto flex items-center gap-0.5">
+                                      {safeMode ? (
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-6 w-6 text-amber-400 hover:text-amber-300 hover:bg-amber-950/40"
+                                          title="Arquivar Campo"
+                                          disabled={field.archived}
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            handleArchiveField(block.id, field.id)
+                                          }}
+                                        >
+                                          <Archive className="h-3.5 w-3.5" />
+                                        </Button>
+                                      ) : (
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-6 w-6 text-red-400 hover:text-red-300 hover:bg-red-950/40"
+                                          title="Excluir campo"
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            setConfirmDeleteField(field)
+                                            // guarda o contexto do campo a excluir
+                                            confirmDeleteContextRef.current = { blockId: block.id }
+                                          }}
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {fieldDropLine(field.id, 'after')}
                                 </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      {blockDropLineAfter(block.id)}
                     </div>
                   )
                 })
