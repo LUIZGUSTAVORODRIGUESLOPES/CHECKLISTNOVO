@@ -1,5 +1,6 @@
 import type { TemplateBlock, TemplateField } from '@/types/template'
 import { validateRegistryValue } from '@/lib/masks'
+import { evaluateFieldVisibility } from '@/lib/logic'
 
 export interface InvalidRegistryEntry {
   /** Rótulo do bloco onde o campo está. */
@@ -26,6 +27,15 @@ function isEmptyValue(raw: unknown): boolean {
  *  - qualquer campo com required = true vazio (ou registry obrigatório
  *    incompleto, que também bloqueia a submissão).
  * Usado para bloquear a submissão com um toast de erro.
+ *
+ * Obrigatoriedade só vale para campos VISÍVEIS no momento do preenchimento:
+ * antes de validar, o estado de visibilidade de cada campo é calculado pelo
+ * mesmo motor de gatilhos usado na renderização (evaluateFieldVisibility).
+ * Campo oculto por gatilho não atendido (inclusive quando o campo de origem
+ * está vazio) e campos que só existem dentro de um bloco efetivamente oculto
+ * (todos os seus campos condicionais escondidos) são ignorados — nunca geram
+ * alerta de obrigatório pendente. Campos sem gatilho (sempre visíveis)
+ * mantêm a obrigatoriedade como antes.
  */
 export function findInvalidRegistryFields(
   blocks: TemplateBlock[],
@@ -33,10 +43,21 @@ export function findInvalidRegistryFields(
   keyOf: (blockId: string, fieldId: string) => string,
 ): InvalidRegistryEntry[] {
   const invalid: InvalidRegistryEntry[] = []
+  // Mesma avaliação de gatilhos da renderização (por chave blockId:fieldId).
+  const visibility = evaluateFieldVisibility(blocks, values)
   for (const block of blocks) {
-    for (const field of block.fields) {
-      if (field.archived) continue
+    // Bloco inteiro oculto: quando TODOS os campos ativos do bloco estão
+    // escondidos por gatilho, nenhum campo dele participa da validação.
+    const activeFields = block.fields.filter((f) => !f.archived)
+    const blockHidden =
+      activeFields.length > 0 &&
+      activeFields.every((f) => visibility[keyOf(block.id, f.id)] === false)
+    if (blockHidden) continue
+    for (const field of activeFields) {
       const key = keyOf(block.id, field.id)
+      // Campo individualmente oculto por gatilho não atendido: fora da
+      // validação (nem obrigatório, nem máscara).
+      if (visibility[key] === false) continue
       const raw = values[key]
       const value = typeof raw === 'string' ? raw : ''
       const label = field.label || 'Campo sem rótulo'
